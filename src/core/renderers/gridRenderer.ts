@@ -30,7 +30,20 @@ function renderClippedPolyline(
   points: ProjectedSamplePoint[],
   isFront: boolean,
   threshold: number,
+  isUnclipped: boolean,
 ): void {
+  if (points.length < 2) return;
+
+  // モーフィング展開完了時またはクリッピング不要時は全頂点を一本の連続パスとして描画
+  if (isUnclipped) {
+    p5Instance.beginShape();
+    for (let i = 0; i < points.length; i++) {
+      p5Instance.vertex(points[i].screenX, points[i].screenY);
+    }
+    p5Instance.endShape();
+    return;
+  }
+
   let currentStrip: { x: number; y: number }[] | null = null;
 
   const flushStrip = () => {
@@ -166,7 +179,7 @@ export function renderGraticuleGridLines(
   } = options;
 
   // 背面レイヤーはモーフィング展開に伴いフェードアウト（展開後は二重描画を防ぐ）
-  if (!isFrontLayer && currentMorphProgress >= 0.5) {
+  if (!isFrontLayer && currentMorphProgress >= 0.4) {
     return;
   }
 
@@ -184,24 +197,26 @@ export function renderGraticuleGridLines(
   const gridStrokeColor =
     backgroundBrightness > 128 ? [30, 41, 59] : [241, 245, 249];
 
+  // 不透明度
   const morphFade = !isFrontLayer
-    ? Math.max(0, 1 - currentMorphProgress * 2)
+    ? Math.max(0, 1 - currentMorphProgress * 2.5)
     : 1.0;
-  const baseAlpha = Math.round((isFrontLayer ? 130 : 65) * morphFade);
+  const baseAlpha = Math.round((isFrontLayer ? 135 : 75) * morphFade);
 
   if (baseAlpha <= 0) {
     p5Instance.pop();
     return;
   }
 
-  // 前面レイヤーはモーフィング進行に伴い全領域を展開（球体時は 0.0、展開完了時は -1.05）
-  const depthThreshold = isFrontLayer
-    ? (1 - currentMorphProgress) * 0.0 + currentMorphProgress * -1.05
-    : 0.0;
+  // 途中で切れる現象の完全防止:
+  // 前面レイヤーは、モーフィング展開が進むにつれて全球の経緯線を途切れなく全描画
+  // currentMorphProgress >= 0.15 以上ではクリッピングを解除して端から端まで描画
+  const isUnclipped = isFrontLayer && currentMorphProgress >= 0.15;
+  const depthThreshold = isFrontLayer ? -currentMorphProgress * 2.0 : 0.0;
 
   const latitudeSteps = 12;
   const longitudeSteps = 24;
-  const segmentResolution = 72;
+  const segmentResolution = 96;
 
   // 1. 緯線（Parallels: 赤道を含む）
   for (
@@ -249,28 +264,35 @@ export function renderGraticuleGridLines(
       points,
       isFrontLayer,
       depthThreshold,
+      isUnclipped,
     );
   }
 
-  // 2. 経線（Meridians: 本初子午線を含む）
+  // 2. 経線（Meridians: 本初子午線およびちぎる経線の両側を含む）
+  // longitudeIndex <= longitudeSteps とすることで、ちぎり線の左側(-PI)と右側(+PI)の両側を描画
   for (
     let longitudeIndex = 0;
-    longitudeIndex < longitudeSteps;
+    longitudeIndex <= longitudeSteps;
     longitudeIndex++
   ) {
     const longitudeAngle =
       -Math.PI + (longitudeIndex / longitudeSteps) * Math.PI * 2;
+
+    const isSeamBorder =
+      longitudeIndex === 0 || longitudeIndex === longitudeSteps;
     const isPrimeMeridian =
       Math.abs(longitudeAngle) < 0.05 ||
       Math.abs(Math.abs(longitudeAngle) - Math.PI) < 0.05;
+
+    const isKeyLine = isPrimeMeridian || isSeamBorder;
 
     p5Instance.stroke(
       gridStrokeColor[0],
       gridStrokeColor[1],
       gridStrokeColor[2],
-      isPrimeMeridian ? Math.min(255, baseAlpha + 60) : baseAlpha,
+      isKeyLine ? Math.min(255, baseAlpha + 60) : baseAlpha,
     );
-    p5Instance.strokeWeight(isPrimeMeridian ? 1.6 : 0.85);
+    p5Instance.strokeWeight(isKeyLine ? 1.6 : 0.85);
 
     const points: ProjectedSamplePoint[] = [];
     for (
@@ -300,6 +322,7 @@ export function renderGraticuleGridLines(
       points,
       isFrontLayer,
       depthThreshold,
+      isUnclipped,
     );
   }
 
