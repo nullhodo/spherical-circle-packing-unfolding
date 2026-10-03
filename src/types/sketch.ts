@@ -32,10 +32,13 @@ export type ProjectionMethod =
   | "orthographic2d"
   | "mollweide";
 
+export type PackingAlgorithm = "relaxation" | "hierarchical" | "random";
+
 export interface SketchParams {
   morphProgress: number; // 0 (Sphere 3D) to 1 (Planar Map 2D)
   projectionScale: number;
   projectionMethod: ProjectionMethod;
+  packingAlgorithm: PackingAlgorithm;
   isAutoMorph: boolean;
   rotationSpeed: number;
   maxCircles: number;

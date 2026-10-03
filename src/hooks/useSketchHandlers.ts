@@ -51,6 +51,23 @@ export function useSketchHandlers() {
     setRedoStack([]);
   }, [setUndoStack, setRedoStack]);
 
+  const recomputePacking = useCallback(
+    (customParams?: Partial<SketchParams>, customPalette?: Palette) => {
+      const p = { ...paramsRef.current, ...customParams };
+      const pal = customPalette || activePaletteRef.current;
+      const newCircles = computeSphericalCirclePacking({
+        maxCircles: p.maxCircles,
+        minRadius: p.minRadius,
+        maxRadius: p.maxRadius,
+        palette: pal,
+        isExclusiveBackground: p.isExclusiveBackground,
+        algorithm: p.packingAlgorithm,
+      });
+      setCircles(newCircles);
+    },
+    [setCircles],
+  );
+
   const handleParamChange = useCallback(
     <K extends keyof SketchParams>(
       key: K,
@@ -64,24 +81,13 @@ export function useSketchHandlers() {
         const next = { ...prev, [key]: value };
         return next;
       });
-    },
-    [recordHistory, setParams],
-  );
 
-  const recomputePacking = useCallback(
-    (customParams?: Partial<SketchParams>, customPalette?: Palette) => {
-      const p = { ...paramsRef.current, ...customParams };
-      const pal = customPalette || activePaletteRef.current;
-      const newCircles = computeSphericalCirclePacking({
-        maxCircles: p.maxCircles,
-        minRadius: p.minRadius,
-        maxRadius: p.maxRadius,
-        palette: pal,
-        isExclusiveBackground: p.isExclusiveBackground,
-      });
-      setCircles(newCircles);
+      // アルゴリズム変更時は即時再計算
+      if (key === "packingAlgorithm") {
+        recomputePacking({ [key]: value });
+      }
     },
-    [setCircles],
+    [recordHistory, setParams, recomputePacking],
   );
 
   const handleApplyPalette = useCallback(

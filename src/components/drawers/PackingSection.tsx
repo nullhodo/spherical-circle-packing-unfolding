@@ -1,5 +1,5 @@
 import { useAtom } from "jotai";
-import { CircleDot, Grid, RefreshCw } from "lucide-react";
+import { CircleDot, Cpu, Grid, RefreshCw } from "lucide-react";
 import type React from "react";
 import { circlesAtom, sketchParamsAtom } from "../../state/sketchStore";
 
@@ -31,6 +31,61 @@ export const PackingSection: React.FC<Props> = ({
         <RefreshCw className="w-3.5 h-3.5" />
         <span>サークルパッキング再計算</span>
       </button>
+
+      {/* アルゴリズム選択 */}
+      <div>
+        <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
+          <span className="flex items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5 text-sky-400" />
+            充填アルゴリズム (Algorithm)
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/60 rounded-lg border border-slate-800">
+          <button
+            type="button"
+            onClick={() => onParamChange("packingAlgorithm", "relaxation")}
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.packingAlgorithm === "relaxation"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
+          >
+            高密度緩和
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onParamChange("packingAlgorithm", "hierarchical")
+            }
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.packingAlgorithm === "hierarchical"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
+          >
+            階層充填
+          </button>
+          <button
+            type="button"
+            onClick={() => onParamChange("packingAlgorithm", "random")}
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.packingAlgorithm === "random"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+            }`}
+          >
+            高速ランダム
+          </button>
+        </div>
+        <p className="mt-1 text-[10px] text-slate-400 leading-tight">
+          {params.packingAlgorithm === "relaxation" &&
+            "接触反発と空間膨張シミュレーションにより、隙間を極限まで埋める高密度充填 (推奨)"}
+          {params.packingAlgorithm === "hierarchical" &&
+            "大円を配置後に残余ボイドを探索し、中円・小円を吸着させるアポロニアン充填"}
+          {params.packingAlgorithm === "random" &&
+            "速度最優先のランダム試行配置 (従来の浮遊感スタイル)"}
+        </p>
+      </div>
 
       {/* 最大円数 */}
       <div>
