@@ -8,28 +8,35 @@ import type {
   SphericalCircle,
 } from "../types/sketch";
 
+const oceanicSlateIndex = colourPalettes.findIndex(
+  (p) => p.title.toLowerCase() === "oceanic slate",
+);
+const defaultPaletteIndex = oceanicSlateIndex >= 0 ? oceanicSlateIndex : 0;
+
 const initialParams: SketchParams = {
   morphProgress: 0.0,
-  projectionScale: 1.0,
+  projectionScale: 0.6,
   projectionMethod: "winkel",
-  isAutoMorph: false,
+  isAutoMorph: true,
   rotationSpeed: 1.0,
   maxCircles: 380,
-  minRadius: 0.04,
-  maxRadius: 0.32,
+  minRadius: 0.02,
+  maxRadius: 0.5,
   showStroke: false,
   strokeWeight: 1.5,
   circleSegments: 64,
   showGrid: true,
-  activePaletteIndex: 0,
-  isExclusiveBackground: false,
+  activePaletteIndex: defaultPaletteIndex,
+  isExclusiveBackground: true,
   showFilmGrain: true,
   isDebugMode: false,
 };
 
 export const sketchParamsAtom = atom<SketchParams>(initialParams);
 
-export const activePaletteAtom = atom<Palette>(colourPalettes[0]);
+export const activePaletteAtom = atom<Palette>(
+  colourPalettes[defaultPaletteIndex] ?? colourPalettes[0],
+);
 
 export const circlesAtom = atom<SphericalCircle[]>([]);
 
