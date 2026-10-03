@@ -1,0 +1,42 @@
+{
+  "name": "spherical-circle-packing-unfolding",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "check": "biome check .",
+    "format": "biome format --write .",
+    "knip": "knip",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "framer-motion": "^11.18.2",
+    "jotai": "^2.11.3",
+    "lucide-react": "^0.475.0",
+    "mp4-muxer": "^5.1.4",
+    "p5": "^1.9.0",
+    "p5.js-svg": "^1.5.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/p5": "^1.7.6",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "knip": "^5.44.0",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+  }
+}
