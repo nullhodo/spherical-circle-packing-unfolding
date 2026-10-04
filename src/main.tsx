@@ -373,6 +373,7 @@ const App: React.FC = () => {
             activePalette: currentPalette,
             isExclusiveBackground: currentParams.isExclusiveBackground,
             isFrontLayer: false,
+            gridLayerMode: currentParams.gridLayerMode,
           });
         }
 
@@ -402,6 +403,7 @@ const App: React.FC = () => {
             activePalette: currentPalette,
             isExclusiveBackground: currentParams.isExclusiveBackground,
             isFrontLayer: true,
+            gridLayerMode: currentParams.gridLayerMode,
           });
         }
 

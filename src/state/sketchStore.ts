@@ -18,6 +18,7 @@ const initialParams: SketchParams = {
   projectionScale: 0.6,
   projectionMethod: "winkel",
   packingAlgorithm: "relaxation",
+  gridLayerMode: "underlay",
   isAutoMorph: true,
   rotationSpeed: 1.0,
   maxCircles: 380,

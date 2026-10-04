@@ -240,6 +240,43 @@ export const PackingSection: React.FC<Props> = ({
           <Grid className="w-3.5 h-3.5 text-indigo-400" />
           <span>経緯線グリッドを表示 (Graticule)</span>
         </label>
+
+        {params.showGrid && (
+          <div className="pt-1 pl-5 space-y-1">
+            <span className="text-[11px] text-slate-400 font-medium">
+              グリッド配置階層 (Layering)
+            </span>
+            <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-950/60 rounded-lg border border-slate-800">
+              <button
+                type="button"
+                onClick={() => onParamChange("gridLayerMode", "underlay")}
+                className={`py-1 px-2 rounded text-[10px] font-medium transition-all text-center ${
+                  params.gridLayerMode === "underlay"
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+              >
+                円の背面 (推奨・無干渉)
+              </button>
+              <button
+                type="button"
+                onClick={() => onParamChange("gridLayerMode", "overlay")}
+                className={`py-1 px-2 rounded text-[10px] font-medium transition-all text-center ${
+                  params.gridLayerMode === "overlay"
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                }`}
+              >
+                円の前面 (オーバーレイ)
+              </button>
+            </div>
+            <p className="text-[9px] text-slate-500 leading-tight">
+              {params.gridLayerMode === "underlay"
+                ? "円の背後にグリッドを敷き、同一座標干渉によるチラつきを根本排除します"
+                : "円の上にグリッドを重ねます (自転時に多少のチラつきが生じる場合があります)"}
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

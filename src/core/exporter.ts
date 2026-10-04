@@ -62,6 +62,7 @@ export function exportHighResolutionImage(
           activePalette,
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: false,
+          gridLayerMode: params.gridLayerMode,
         });
       }
 
@@ -89,6 +90,7 @@ export function exportHighResolutionImage(
           activePalette,
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: true,
+          gridLayerMode: params.gridLayerMode,
         });
       }
 
@@ -176,6 +178,7 @@ export function exportSvgGraphics(
           activePalette,
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: false,
+          gridLayerMode: params.gridLayerMode,
         });
       }
 
@@ -203,6 +206,7 @@ export function exportSvgGraphics(
           activePalette,
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: true,
+          gridLayerMode: params.gridLayerMode,
         });
       }
 
