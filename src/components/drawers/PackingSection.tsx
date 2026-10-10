@@ -1,5 +1,5 @@
 import { useAtom } from "jotai";
-import { CircleDot, Cpu, Grid, RefreshCw } from "lucide-react";
+import { CircleDot, Cpu, Globe, Grid, RefreshCw } from "lucide-react";
 import type React from "react";
 import { circlesAtom, sketchParamsAtom } from "../../state/sketchStore";
 
@@ -195,6 +195,22 @@ export const PackingSection: React.FC<Props> = ({
 
       {/* 線・グリッドのオプション */}
       <div className="pt-2 border-t border-slate-800/80 space-y-3">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
+          <input
+            type="checkbox"
+            checked={params.fitSphericalSurface}
+            onChange={(e) =>
+              onParamChange("fitSphericalSurface", e.target.checked)
+            }
+            className="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0 w-3.5 h-3.5"
+          />
+          <Globe className="w-3.5 h-3.5 text-sky-400" />
+          <span>球面曲面にフィット (Fit Sphere)</span>
+        </label>
+        <p className="text-[10px] text-slate-400 pl-5 -mt-1.5 leading-tight">
+          円の内部を平面ディスクではなく球面の曲率に沿ったドームメッシュとして描画
+        </p>
+
         <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
           <input
             type="checkbox"

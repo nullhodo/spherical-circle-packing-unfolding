@@ -49,6 +49,7 @@ export interface SketchParams {
   showStroke: boolean;
   strokeWeight: number;
   circleSegments: number;
+  fitSphericalSurface: boolean;
   showGrid: boolean;
   activePaletteIndex: number;
   isExclusiveBackground: boolean;

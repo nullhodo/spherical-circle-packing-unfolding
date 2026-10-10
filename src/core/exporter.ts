@@ -77,6 +77,7 @@ export function exportHighResolutionImage(
         showStroke: params.showStroke,
         strokeWeight: params.strokeWeight * scalingFactor,
         circleSegments: params.circleSegments,
+        fitSphericalSurface: params.fitSphericalSurface,
       });
 
       if (params.showGrid) {
@@ -193,6 +194,7 @@ export function exportSvgGraphics(
         showStroke: params.showStroke,
         strokeWeight: params.strokeWeight,
         circleSegments: params.circleSegments,
+        fitSphericalSurface: params.fitSphericalSurface,
       });
 
       if (params.showGrid) {
