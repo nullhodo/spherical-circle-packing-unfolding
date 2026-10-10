@@ -128,6 +128,31 @@ function renderCirclePiece(
 }
 
 /**
+ * シーム線 (lon = ±PI, すなわち x < 0, z = 0) との交点Iを計算するヘルパー
+ */
+function computeIntersection(
+  pA: SphericalPoint,
+  pB: SphericalPoint,
+): { lat: number; point3D: [number, number, number] } {
+  const zA = pA.point3D[2];
+  const zB = pB.point3D[2];
+  const t = Math.abs(zB - zA) > 1e-7 ? -zA / (zB - zA) : 0.5;
+  const clampedT = Math.max(0, Math.min(1, t));
+
+  let ix = pA.point3D[0] + clampedT * (pB.point3D[0] - pA.point3D[0]);
+  let iy = pA.point3D[1] + clampedT * (pB.point3D[1] - pA.point3D[1]);
+  const iz = 0; // ちぎり線上なので z は厳密に 0
+
+  const len = Math.sqrt(ix * ix + iy * iy);
+  if (len > 0) {
+    ix /= len;
+    iy /= len;
+  }
+  const lat = Math.asin(Math.max(-1, Math.min(1, iy)));
+  return { lat, point3D: [ix, iy, iz] };
+}
+
+/**
  * サークルパッキング群を深度ソートしてレンダリングする関数
  * ちぎる経線 (Seam: lon = ±PI) を跨ぐ円は自動的に左右に分割して描画する
  */
@@ -258,7 +283,106 @@ export function renderPackedCirclesGeometry(
       });
     }
 
-    // ちぎり線 (lon = ±PI, すなわち x < 0, z = 0) を跨ぐかどうかの判定
+    // 1. 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）の検出
+    const normalY = circleData.normalVector[1];
+    const encompassesNorthPole = normalY >= cosRadius - 1e-5;
+    const encompassesSouthPole = normalY <= -cosRadius + 1e-5;
+
+    if (encompassesNorthPole || encompassesSouthPole) {
+      const poleLat = encompassesNorthPole ? Math.PI / 2 : -Math.PI / 2;
+      const pole3D: [number, number, number] = [
+        0,
+        encompassesNorthPole ? 1 : -1,
+        0,
+      ];
+
+      // シーム (lon = ±PI) 横断インデックスの検出
+      let seamIdx = -1;
+      for (let i = 0; i < circleVerticesCount; i++) {
+        const nextIndex = (i + 1) % circleVerticesCount;
+        const lonA = rawVertices[i].lon;
+        const lonB = rawVertices[nextIndex].lon;
+        if (Math.abs(lonB - lonA) > Math.PI) {
+          seamIdx = i;
+          break;
+        }
+      }
+
+      if (seamIdx !== -1) {
+        const pA = rawVertices[seamIdx];
+        const pB = rawVertices[(seamIdx + 1) % circleVerticesCount];
+        const inter = computeIntersection(pA, pB);
+
+        // 円周を seamIdx+1 から seamIdx まで巡る（シームを跨がない一連の頂点列）
+        const interiorPoints: SphericalPoint[] = [];
+        let curr = (seamIdx + 1) % circleVerticesCount;
+        while (curr !== seamIdx) {
+          interiorPoints.push(rawVertices[curr]);
+          curr = (curr + 1) % circleVerticesCount;
+        }
+        interiorPoints.push(rawVertices[seamIdx]);
+
+        // 西(-PI)から東(+PI)へ経度が増加する順序に整列
+        let isIncreasing = true;
+        if (interiorPoints.length >= 2) {
+          const firstLon = interiorPoints[0].lon;
+          const lastLon = interiorPoints[interiorPoints.length - 1].lon;
+          isIncreasing = firstLon < lastLon;
+        }
+
+        const orderedInterior = isIncreasing
+          ? interiorPoints
+          : [...interiorPoints].reverse();
+
+        const interWest: SphericalPoint = {
+          point3D: inter.point3D,
+          lon: -Math.PI,
+          lat: inter.lat,
+        };
+        const interEast: SphericalPoint = {
+          point3D: inter.point3D,
+          lon: Math.PI,
+          lat: inter.lat,
+        };
+
+        const arcPoints = [interWest, ...orderedInterior, interEast];
+
+        // 極線の生成: 東端 (lon = +PI) から 西端 (lon = -PI) へ戻るパス
+        const poleSteps = Math.max(
+          16,
+          Math.floor(circleVerticesCount / 2),
+        );
+        const poleLine: SphericalPoint[] = [];
+        for (let s = 0; s <= poleSteps; s++) {
+          const t = s / poleSteps;
+          const lon = Math.PI - t * (Math.PI * 2);
+          poleLine.push({
+            point3D: pole3D,
+            lon,
+            lat: poleLat,
+          });
+        }
+
+        // 塗りつぶしポリゴン: 円周弧(西->東) + 極線(東->西)
+        const fillPolygon = [...arcPoints, ...poleLine];
+
+        renderCirclePiece(
+          p5Instance,
+          fillPolygon,
+          arcPoints,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotationAngleX,
+          rotationAngleY,
+          showStroke,
+        );
+        continue;
+      }
+    }
+
+    // 2. ちぎり線 (lon = ±PI, すなわち x < 0, z = 0) を跨ぐかどうかの判定 (通常円)
     const crossingIndices: number[] = [];
     for (let i = 0; i < circleVerticesCount; i++) {
       const nextIndex = (i + 1) % circleVerticesCount;
@@ -290,28 +414,6 @@ export function renderPackedCirclesGeometry(
     }
 
     // ちぎり線を跨ぐ円: 東側 (lon > 0, +PI 側) と 西側 (lon < 0, -PI 側) に分割
-    // 交点Iの計算ヘルパー
-    const computeIntersection = (
-      pA: SphericalPoint,
-      pB: SphericalPoint,
-    ): { lat: number; point3D: [number, number, number] } => {
-      const zA = pA.point3D[2];
-      const zB = pB.point3D[2];
-      const t = Math.abs(zB - zA) > 1e-7 ? -zA / (zB - zA) : 0.5;
-      const clampedT = Math.max(0, Math.min(1, t));
-
-      let ix = pA.point3D[0] + clampedT * (pB.point3D[0] - pA.point3D[0]);
-      let iy = pA.point3D[1] + clampedT * (pB.point3D[1] - pA.point3D[1]);
-      const iz = 0; // ちぎり線上なので z は厳密に 0
-
-      const len = Math.sqrt(ix * ix + iy * iy);
-      if (len > 0) {
-        ix /= len;
-        iy /= len;
-      }
-      const lat = Math.asin(Math.max(-1, Math.min(1, iy)));
-      return { lat, point3D: [ix, iy, iz] };
-    };
 
     // 交差点情報を収集
     const idx0 = crossingIndices[0];
