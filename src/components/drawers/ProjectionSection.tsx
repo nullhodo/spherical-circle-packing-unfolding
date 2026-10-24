@@ -1,5 +1,12 @@
 import { useAtom } from "jotai";
-import { Activity, Compass, Globe, Play, RotateCw } from "lucide-react";
+import {
+  Activity,
+  Compass,
+  Globe,
+  Play,
+  RotateCw,
+  UnfoldHorizontal,
+} from "lucide-react";
 import type React from "react";
 import { useEffect, useRef } from "react";
 import { PROJECTION_OPTIONS } from "../../constants/projections";
@@ -88,6 +95,61 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
           <span>3D 球面 (0.0)</span>
           <span>2D 平面展開 (1.0)</span>
         </div>
+      </div>
+
+      {/* 展開アニメーション方式 (Transition Style) */}
+      <div>
+        <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
+          <span className="flex items-center gap-1.5">
+            <UnfoldHorizontal className="w-3.5 h-3.5 text-sky-400" />
+            展開の開き方 (Transition)
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/60 rounded-lg border border-slate-800">
+          <button
+            type="button"
+            onClick={() => onParamChange("morphTransitionMode", "direct")}
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.morphTransitionMode === "direct"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            ダイレクト
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              onParamChange("morphTransitionMode", "cylinder")
+            }
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.morphTransitionMode === "cylinder"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            1. 円筒展開
+          </button>
+          <button
+            type="button"
+            onClick={() => onParamChange("morphTransitionMode", "unroll")}
+            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+              params.morphTransitionMode === "unroll"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-300 hover:text-white hover:bg-slate-900"
+            }`}
+          >
+            2. 両開き展開
+          </button>
+        </div>
+        <p className="mt-1 text-[10px] text-slate-400 leading-tight">
+          {params.morphTransitionMode === "direct" &&
+            "従来の直線ワープ。自転しながら画面上で直線的に四角形へと変形吸着"}
+          {params.morphTransitionMode === "cylinder" &&
+            "シリンダー経由。球体が円筒を経て裏側の継ぎ目から左右にパカッと開く等長アンロール"}
+          {params.morphTransitionMode === "unroll" &&
+            "両開き展開。自転を正面に整列させ、背中から本を開くように左右へめくれていく扇状展開"}
+        </p>
       </div>
 
       {/* 投影法選択 */}

@@ -1,9 +1,10 @@
 import type p5 from "p5";
 import type {
+  MorphTransitionMode,
   ProjectionMethod,
   SphericalCircle,
 } from "../../types/sketch";
-import { projectSphericalCoordinatesToPlane } from "../math/projections";
+import { computeMorphedPoint2D } from "../math/morphing";
 import { applySphereOrientationRotation } from "../math/rotation";
 
 interface CircleRenderOptions {
@@ -12,6 +13,7 @@ interface CircleRenderOptions {
   currentMorphProgress: number;
   projectionMethod: ProjectionMethod;
   projectionScaleMultiplier?: number;
+  morphTransitionMode?: MorphTransitionMode;
   rotationAngleX: number;
   rotationAngleY: number;
   showStroke: boolean;
@@ -64,60 +66,21 @@ function computeScreenPosition(
   projectionScaleMultiplier: number,
   rotationAngleX: number,
   rotationAngleY: number,
+  transitionMode: MorphTransitionMode = "direct",
 ): { x: number; y: number } {
-  // 最適化: モーフィング 0 (通常の3D自転時) は地図投影計算を100%スキップ
-  if (currentMorphProgress <= 1e-4) {
-    const rotated = applySphereOrientationRotation(
-      point3D,
-      rotationAngleX,
-      rotationAngleY,
-    );
-    return {
-      x: rotated.screenX * baseRadius,
-      y: rotated.screenY * baseRadius,
-    };
-  }
-
-  // 最適化: モーフィング 1 (2D平面展開完了時) は3D回転計算をスキップ
-  if (currentMorphProgress >= 1 - 1e-4) {
-    const projected2D = projectSphericalCoordinatesToPlane(
-      lon,
-      lat,
-      baseRadius,
-      projectionMethod,
-      projectionScaleMultiplier,
-    );
-    return {
-      x: projected2D.planarX,
-      y: projected2D.planarY,
-    };
-  }
-
-  // モーフィング遷移中のみ両方を計算してイージングブレンド
-  const rotatedPoint = applySphereOrientationRotation(
+  const result = computeMorphedPoint2D({
     point3D,
-    rotationAngleX,
-    rotationAngleY,
-  );
-  const sphereScreenX = rotatedPoint.screenX * baseRadius;
-  const sphereScreenY = rotatedPoint.screenY * baseRadius;
-
-  const projected2D = projectSphericalCoordinatesToPlane(
     lon,
     lat,
     baseRadius,
+    currentMorphProgress,
     projectionMethod,
     projectionScaleMultiplier,
-  );
-
-  return {
-    x:
-      sphereScreenX * (1 - currentMorphProgress) +
-      projected2D.planarX * currentMorphProgress,
-    y:
-      sphereScreenY * (1 - currentMorphProgress) +
-      projected2D.planarY * currentMorphProgress,
-  };
+    rotationAngleX,
+    rotationAngleY,
+    transitionMode,
+  });
+  return { x: result.x, y: result.y };
 }
 
 /**
@@ -136,6 +99,7 @@ function renderSphericalFittedCircle(
   rotationAngleY: number,
   showStroke: boolean,
   circleVerticesCount: number,
+  transitionMode: MorphTransitionMode = "direct",
 ): void {
   // 適応型LOD: 極小円(半径<0.05rad)は球面の凹凸が0.3px未満のため中心ファンのみ(1段)、中〜大円は2段メッシュで曲面を完全再現
   const isSmallCircle = circleData.angularRadius < 0.05;
@@ -152,6 +116,7 @@ function renderSphericalFittedCircle(
     projectionScaleMultiplier,
     rotationAngleX,
     rotationAngleY,
+    transitionMode,
   );
 
   // 外周リング (k = radialRings): 既に計算済みの rawVertices を投影
@@ -169,6 +134,7 @@ function renderSphericalFittedCircle(
         projectionScaleMultiplier,
         rotationAngleX,
         rotationAngleY,
+        transitionMode,
       ),
     );
   }
@@ -230,6 +196,7 @@ function renderSphericalFittedCircle(
           projectionScaleMultiplier,
           rotationAngleX,
           rotationAngleY,
+          transitionMode,
         ),
       );
     }
@@ -281,6 +248,7 @@ function renderCirclePiece(
   rotationAngleY: number,
   showStroke: boolean,
   fitSphericalSurface = false,
+  transitionMode: MorphTransitionMode = "direct",
 ): void {
   p5Instance.push();
   p5Instance.noStroke();
@@ -314,6 +282,7 @@ function renderCirclePiece(
       projectionScaleMultiplier,
       rotationAngleX,
       rotationAngleY,
+      transitionMode,
     );
 
     // TRIANGLE_FAN で中心から各外周頂点へファンを張って球面ドーム化
@@ -330,6 +299,7 @@ function renderCirclePiece(
         projectionScaleMultiplier,
         rotationAngleX,
         rotationAngleY,
+        transitionMode,
       );
       p5Instance.vertex(pos.x, pos.y);
     }
@@ -343,6 +313,7 @@ function renderCirclePiece(
       projectionScaleMultiplier,
       rotationAngleX,
       rotationAngleY,
+      transitionMode,
     );
     p5Instance.vertex(firstPos.x, firstPos.y);
     p5Instance.endShape();
@@ -361,6 +332,7 @@ function renderCirclePiece(
         projectionScaleMultiplier,
         rotationAngleX,
         rotationAngleY,
+        transitionMode,
       );
       p5Instance.vertex(pos.x, pos.y);
     }
@@ -383,6 +355,7 @@ function renderCirclePiece(
         projectionScaleMultiplier,
         rotationAngleX,
         rotationAngleY,
+        transitionMode,
       );
       p5Instance.vertex(pos.x, pos.y);
     }
@@ -435,6 +408,7 @@ export function renderPackedCirclesGeometry(
     strokeWeight,
     circleSegments = 64,
     fitSphericalSurface = true,
+    morphTransitionMode = "direct",
   } = options;
 
   // 深度ソートの計算
@@ -641,6 +615,7 @@ export function renderPackedCirclesGeometry(
           rotationAngleY,
           showStroke,
           fitSphericalSurface,
+          morphTransitionMode,
         );
         continue;
       }
@@ -673,6 +648,7 @@ export function renderPackedCirclesGeometry(
           rotationAngleY,
           showStroke,
           circleVerticesCount,
+          morphTransitionMode,
         );
       } else {
         const fillList = [...rawVertices];
@@ -688,6 +664,8 @@ export function renderPackedCirclesGeometry(
           rotationAngleX,
           rotationAngleY,
           showStroke,
+          false,
+          morphTransitionMode,
         );
       }
       continue;
@@ -845,6 +823,7 @@ export function renderPackedCirclesGeometry(
       rotationAngleY,
       showStroke,
       fitSphericalSurface,
+      morphTransitionMode,
     );
 
     // 西側ピース（左端）の描画
@@ -860,6 +839,7 @@ export function renderPackedCirclesGeometry(
       rotationAngleY,
       showStroke,
       fitSphericalSurface,
+      morphTransitionMode,
     );
   }
 

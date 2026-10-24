@@ -34,11 +34,13 @@ export type ProjectionMethod =
 
 export type PackingAlgorithm = "maximal" | "powerlaw" | "random";
 export type GridLayerMode = "underlay" | "overlay";
+export type MorphTransitionMode = "direct" | "cylinder" | "unroll";
 
 export interface SketchParams {
   morphProgress: number; // 0 (Sphere 3D) to 1 (Planar Map 2D)
   projectionScale: number;
   projectionMethod: ProjectionMethod;
+  morphTransitionMode: MorphTransitionMode;
   packingAlgorithm: PackingAlgorithm;
   gridLayerMode: GridLayerMode;
   isAutoMorph: boolean;

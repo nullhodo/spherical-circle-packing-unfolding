@@ -1,17 +1,18 @@
 import type p5 from "p5";
 import type {
   GridLayerMode,
+  MorphTransitionMode,
   Palette,
   ProjectionMethod,
 } from "../../types/sketch";
-import { projectSphericalCoordinatesToPlane } from "../math/projections";
-import { applySphereOrientationRotation } from "../math/rotation";
+import { computeMorphedPoint2D } from "../math/morphing";
 
 interface GridRenderOptions {
   baseRadius: number;
   currentMorphProgress: number;
   projectionMethod: ProjectionMethod;
   projectionScaleMultiplier?: number;
+  morphTransitionMode?: MorphTransitionMode;
   rotationAngleX: number;
   rotationAngleY: number;
   activePalette: Palette;
@@ -146,24 +147,11 @@ function sampleSphericalPoint(
   rotationAngleY: number,
   isFrontLayer = true,
   isUnderlay = false,
+  transitionMode: MorphTransitionMode = "direct",
 ): ProjectedSamplePoint {
   const px = Math.cos(latitudeAngle) * Math.cos(longitudeAngle);
   const py = Math.sin(latitudeAngle);
   const pz = Math.cos(latitudeAngle) * Math.sin(longitudeAngle);
-
-  const rotated3D = applySphereOrientationRotation(
-    [px, py, pz],
-    rotationAngleX,
-    rotationAngleY,
-  );
-
-  const projected2D = projectSphericalCoordinatesToPlane(
-    longitudeAngle,
-    latitudeAngle,
-    baseRadius,
-    projectionMethod,
-    projectionScaleMultiplier,
-  );
 
   // 半径バイアス (Depth Bias):
   // アンダーレイ時は円の直下 (baseRadius * 0.999) に安定配置
@@ -177,21 +165,23 @@ function sampleSphericalPoint(
   }
   const effectiveSphereRadius = baseRadius * (1 + radiusBias);
 
-  const screenX =
-    rotated3D.screenX *
-      effectiveSphereRadius *
-      (1 - currentMorphProgress) +
-    projected2D.planarX * currentMorphProgress;
-  const screenY =
-    rotated3D.screenY *
-      effectiveSphereRadius *
-      (1 - currentMorphProgress) +
-    projected2D.planarY * currentMorphProgress;
+  const res = computeMorphedPoint2D({
+    point3D: [px, py, pz],
+    lon: longitudeAngle,
+    lat: latitudeAngle,
+    baseRadius: effectiveSphereRadius,
+    currentMorphProgress,
+    projectionMethod,
+    projectionScaleMultiplier,
+    rotationAngleX,
+    rotationAngleY,
+    transitionMode,
+  });
 
   return {
-    screenX,
-    screenY,
-    depthZ: rotated3D.depthZ,
+    screenX: res.x,
+    screenY: res.y,
+    depthZ: res.depthZ,
     lon: longitudeAngle,
     lat: latitudeAngle,
   };
@@ -215,6 +205,7 @@ export function renderGraticuleGridLines(
     isExclusiveBackground,
     isFrontLayer = true,
     gridLayerMode = "underlay",
+    morphTransitionMode = "direct",
   } = options;
 
   const isUnderlay = gridLayerMode === "underlay";
@@ -284,6 +275,7 @@ export function renderGraticuleGridLines(
       rotationAngleY,
       isFrontLayer,
       isUnderlay,
+      morphTransitionMode,
     );
 
   // 1. 緯線（Parallels: 赤道を含む）
