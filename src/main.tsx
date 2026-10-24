@@ -147,6 +147,7 @@ const App: React.FC = () => {
         setRecordingState({
           isRecording: true,
           elapsedSeconds: 0,
+          isLoopMode: false,
         });
         showToast("MP4 録画を開始しました", "info");
       }
@@ -160,6 +161,7 @@ const App: React.FC = () => {
       setRecordingState({
         isRecording: false,
         elapsedSeconds: 0,
+        isLoopMode: false,
       });
       if (savedFile) {
         showToast(`録画動画を保存しました: ${savedFile}`, "success");
@@ -178,12 +180,21 @@ const App: React.FC = () => {
     setRecordingState({
       isRecording: true,
       elapsedSeconds: 0,
+      isLoopMode: true,
       currentLoop: 1,
       totalLoops: N,
+      loopIntervalMs: T,
     });
 
     const success = await recorderRef.current.startRecording();
-    if (!success) return;
+    if (!success) {
+      setRecordingState({
+        isRecording: false,
+        elapsedSeconds: 0,
+        isLoopMode: false,
+      });
+      return;
+    }
 
     randomizeSelectedParameters();
     const startTime = performance.now();
@@ -192,13 +203,14 @@ const App: React.FC = () => {
       const elapsedMs = performance.now() - startTime;
       const elapsedSec = Math.floor(elapsedMs / 1000);
       const currLoop = Math.min(N, Math.floor(elapsedMs / T) + 1);
-      setRecordingState((prev) => ({
-        ...prev,
+      setRecordingState({
         isRecording: true,
         elapsedSeconds: elapsedSec,
+        isLoopMode: true,
         currentLoop: currLoop,
         totalLoops: N,
-      }));
+        loopIntervalMs: T,
+      });
     }, 100);
     loopTimerRef.current.intervalId = timerId;
 
@@ -216,6 +228,7 @@ const App: React.FC = () => {
         setRecordingState({
           isRecording: false,
           elapsedSeconds: 0,
+          isLoopMode: false,
         });
         if (savedFile) {
           showToast(`Nループ録画を完了しました: ${savedFile}`, "success");
@@ -302,11 +315,19 @@ const App: React.FC = () => {
         recorderRef.current = new VideoRecorderManager(
           htmlCanvas,
           (recording, elapsedSec) => {
-            setRecordingState((prev) => ({
-              ...prev,
-              isRecording: recording,
-              elapsedSeconds: elapsedSec,
-            }));
+            setRecordingState((prev) => {
+              if (prev.isLoopMode) {
+                return {
+                  ...prev,
+                  isRecording: recording,
+                };
+              }
+              return {
+                ...prev,
+                isRecording: recording,
+                elapsedSeconds: elapsedSec,
+              };
+            });
           },
         );
       };

@@ -139,7 +139,7 @@ export class VideoRecorderManager {
 
       this.mediaRecorder.start(100);
       this.isRecording = true;
-      this.recordingStartTimestamp = Date.now();
+      this.recordingStartTimestamp = performance.now();
 
       this.startTimer();
       return true;
@@ -259,7 +259,7 @@ export class VideoRecorderManager {
 
     const updateTimer = () => {
       const elapsedSec = Math.floor(
-        (Date.now() - this.recordingStartTimestamp) / 1000,
+        (performance.now() - this.recordingStartTimestamp) / 1000,
       );
       if (this.onStateChangeCallback) {
         this.onStateChangeCallback(this.isRecording, elapsedSec);

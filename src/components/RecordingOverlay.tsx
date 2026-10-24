@@ -22,8 +22,12 @@ export const RecordingOverlay: React.FC<Props> = ({ onStopRecord }) => {
   );
 
   const formatTimer = (secs: number) => {
-    const mins = String(Math.floor(secs / 60)).padStart(2, "0");
-    const s = String(secs % 60).padStart(2, "0");
+    const validSecs = Math.max(
+      0,
+      Math.floor(Number.isFinite(secs) ? secs : 0),
+    );
+    const mins = String(Math.floor(validSecs / 60)).padStart(2, "0");
+    const s = String(validSecs % 60).padStart(2, "0");
     return `${mins}:${s}`;
   };
 
