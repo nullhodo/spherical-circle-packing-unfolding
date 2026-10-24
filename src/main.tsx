@@ -164,7 +164,17 @@ const App: React.FC = () => {
         isLoopMode: false,
       });
       if (savedFile) {
-        showToast(`録画動画を保存しました: ${savedFile}`, "success");
+        showToast(`録画動画とJSONを保存しました: ${savedFile}`, "success");
+        const baseName = savedFile.replace(/\.[^/.]+$/, "");
+        setTimeout(() => {
+          exportJsonSettings(
+            paramsRef.current,
+            `${baseName}_settings`,
+            activePaletteRef.current,
+            circlesRef.current.length,
+            { videoFilename: savedFile },
+          );
+        }, 150);
       }
     }
   };
@@ -231,14 +241,25 @@ const App: React.FC = () => {
           isLoopMode: false,
         });
         if (savedFile) {
-          showToast(`Nループ録画を完了しました: ${savedFile}`, "success");
+          showToast(
+            `Nループ録画とJSONを保存しました: ${savedFile}`,
+            "success",
+          );
+          const baseName = savedFile.replace(/\.[^/.]+$/, "");
+          setTimeout(() => {
+            exportJsonSettings(
+              paramsRef.current,
+              `${baseName}_settings`,
+              activePaletteRef.current,
+              circlesRef.current.length,
+              {
+                videoFilename: savedFile,
+                loopMode: true,
+                totalLoops: N,
+              },
+            );
+          }, 150);
         }
-        exportJsonSettings(
-          paramsRef.current,
-          undefined,
-          activePaletteRef.current,
-          circlesRef.current.length,
-        );
       }
     }, N * T);
     loopTimerRef.current.timeouts.push(finalTimeout);

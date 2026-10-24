@@ -237,6 +237,7 @@ export function exportJsonSettings(
   filenamePrefix?: string,
   activePalette?: Palette,
   circlesCount?: number,
+  additionalMetadata?: Record<string, unknown>,
 ): void {
   const formattedDate = getFormattedDate();
   const filename =
@@ -249,6 +250,7 @@ export function exportJsonSettings(
     parameters: params,
     activePalette,
     circlesCount,
+    ...additionalMetadata,
   };
 
   const jsonBlob = new Blob([JSON.stringify(exportData, null, 2)], {
@@ -259,6 +261,8 @@ export function exportJsonSettings(
   downloadAnchor.download = `${filename}.json`;
   document.body.appendChild(downloadAnchor);
   downloadAnchor.click();
-  document.body.removeChild(downloadAnchor);
-  URL.revokeObjectURL(downloadAnchor.href);
+  setTimeout(() => {
+    document.body.removeChild(downloadAnchor);
+    URL.revokeObjectURL(downloadAnchor.href);
+  }, 1000);
 }

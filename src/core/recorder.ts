@@ -214,7 +214,7 @@ export class VideoRecorderManager {
         downloadLink.href = URL.createObjectURL(blob);
         downloadLink.download = filename;
         downloadLink.click();
-        URL.revokeObjectURL(downloadLink.href);
+        setTimeout(() => URL.revokeObjectURL(downloadLink.href), 1000);
 
         console.log(`[mp4-muxer] Saved MP4 file: ${filename}`);
         return filename;
@@ -233,12 +233,22 @@ export class VideoRecorderManager {
     }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
+      return new Promise<string | null>((resolve) => {
+        if (!this.mediaRecorder) {
+          resolve(null);
+          return;
+        }
+        this.mediaRecorder.onstop = () => {
+          const filename = this.saveMediaRecorderOutput();
+          resolve(filename);
+        };
+        this.mediaRecorder.stop();
+      });
     }
     return null;
   }
 
-  private saveMediaRecorderOutput() {
+  private saveMediaRecorderOutput(): string {
     const timestampString = getFormattedDate();
     const filename = `spherical-packing_${timestampString}.webm`;
 
@@ -249,9 +259,10 @@ export class VideoRecorderManager {
     downloadLink.href = URL.createObjectURL(videoBlob);
     downloadLink.download = filename;
     downloadLink.click();
-    URL.revokeObjectURL(downloadLink.href);
+    setTimeout(() => URL.revokeObjectURL(downloadLink.href), 1000);
 
     console.log(`[MediaRecorder] Saved WebM file: ${filename}`);
+    return filename;
   }
 
   private startTimer() {
