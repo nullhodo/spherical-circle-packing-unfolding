@@ -112,4 +112,78 @@ describe("computeSphericalCirclePacking", () => {
       expect(isNavy).toBe(false);
     }
   });
+
+  it("generates circles using maximal inscribed growth algorithm with zero overlap", () => {
+    const circles = computeSphericalCirclePacking({
+      maxCircles: 60,
+      minRadius: 0.04,
+      maxRadius: 0.35,
+      palette: mockPalette,
+      isExclusiveBackground: false,
+      algorithm: "maximal",
+    });
+
+    expect(circles.length).toBeGreaterThan(15);
+    for (const c of circles) {
+      expect(c.angularRadius).toBeGreaterThanOrEqual(0.035);
+      expect(c.angularRadius).toBeLessThanOrEqual(0.36);
+
+      const [x, y, z] = c.normalVector;
+      const len = Math.sqrt(x * x + y * y + z * z);
+      expect(len).toBeCloseTo(1.0, 4);
+    }
+
+    // 全ペアで重なりゼロを検証
+    for (let i = 0; i < circles.length; i++) {
+      for (let j = i + 1; j < circles.length; j++) {
+        const cA = circles[i];
+        const cB = circles[j];
+        const dot =
+          cA.normalVector[0] * cB.normalVector[0] +
+          cA.normalVector[1] * cB.normalVector[1] +
+          cA.normalVector[2] * cB.normalVector[2];
+        const angularDist = Math.acos(Math.max(-1, Math.min(1, dot)));
+        const requiredDist = cA.angularRadius + cB.angularRadius;
+
+        expect(angularDist + 1e-4).toBeGreaterThanOrEqual(requiredDist);
+      }
+    }
+  });
+
+  it("generates circles using power-law contact packing algorithm with zero overlap", () => {
+    const circles = computeSphericalCirclePacking({
+      maxCircles: 60,
+      minRadius: 0.03,
+      maxRadius: 0.3,
+      palette: mockPalette,
+      isExclusiveBackground: false,
+      algorithm: "powerlaw",
+    });
+
+    expect(circles.length).toBeGreaterThan(20);
+    for (const c of circles) {
+      expect(c.angularRadius).toBeGreaterThanOrEqual(0.025);
+      expect(c.angularRadius).toBeLessThanOrEqual(0.31);
+
+      const [x, y, z] = c.normalVector;
+      const len = Math.sqrt(x * x + y * y + z * z);
+      expect(len).toBeCloseTo(1.0, 4);
+    }
+
+    // 全ペアで重なりゼロを検証
+    for (let i = 0; i < circles.length; i++) {
+      for (let j = i + 1; j < circles.length; j++) {
+        const cA = circles[i];
+        const cB = circles[j];
+        const dot =
+          cA.normalVector[0] * cB.normalVector[0] +
+          cA.normalVector[1] * cB.normalVector[1] +
+          cA.normalVector[2] * cB.normalVector[2];
+        const angularDist = Math.acos(Math.max(-1, Math.min(1, dot)));
+        const requiredDist = cA.angularRadius + cB.angularRadius;
+
+        expect(angularDist + 1e-4).toBeGreaterThanOrEqual(requiredDist);
+      }
+    }
+  });
 });

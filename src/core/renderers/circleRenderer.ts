@@ -215,7 +215,9 @@ function renderSphericalFittedCircle(
           sinRingRad;
 
       const lon = needLonLat ? Math.atan2(pz, px) : 0;
-      const lat = needLonLat ? Math.asin(Math.max(-1, Math.min(1, py))) : 0;
+      const lat = needLonLat
+        ? Math.asin(Math.max(-1, Math.min(1, py)))
+        : 0;
 
       midRingPoints.push(
         computeScreenPosition(

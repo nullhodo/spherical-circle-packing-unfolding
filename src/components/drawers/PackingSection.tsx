@@ -40,46 +40,78 @@ export const PackingSection: React.FC<Props> = ({
             充填アルゴリズム (Algorithm)
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/60 rounded-lg border border-slate-800">
-          <button
-            type="button"
-            onClick={() => onParamChange("packingAlgorithm", "relaxation")}
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
-              params.packingAlgorithm === "relaxation"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-            }`}
-          >
-            高密度緩和
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              onParamChange("packingAlgorithm", "hierarchical")
-            }
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
-              params.packingAlgorithm === "hierarchical"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-            }`}
-          >
-            階層充填
-          </button>
-          <button
-            type="button"
-            onClick={() => onParamChange("packingAlgorithm", "random")}
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
-              params.packingAlgorithm === "random"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-            }`}
-          >
-            高速ランダム
-          </button>
+        <div className="space-y-1 p-1 bg-slate-950/60 rounded-lg border border-slate-800">
+          <div className="grid grid-cols-2 gap-1">
+            <button
+              type="button"
+              onClick={() => onParamChange("packingAlgorithm", "maximal")}
+              className={`py-1.5 px-2 rounded text-[11px] font-medium transition-all text-center ${
+                params.packingAlgorithm === "maximal"
+                  ? "bg-sky-600 text-white shadow-sm"
+                  : "text-slate-300 hover:text-white hover:bg-slate-900"
+              }`}
+            >
+              最大隙間充填
+            </button>
+            <button
+              type="button"
+              onClick={() => onParamChange("packingAlgorithm", "powerlaw")}
+              className={`py-1.5 px-2 rounded text-[11px] font-medium transition-all text-center ${
+                params.packingAlgorithm === "powerlaw"
+                  ? "bg-sky-600 text-white shadow-sm"
+                  : "text-slate-300 hover:text-white hover:bg-slate-900"
+              }`}
+            >
+              べき乗則接触
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-1 pt-1 border-t border-slate-800/60">
+            <button
+              type="button"
+              onClick={() =>
+                onParamChange("packingAlgorithm", "relaxation")
+              }
+              className={`py-1 px-1 rounded text-[10px] font-medium transition-all text-center ${
+                params.packingAlgorithm === "relaxation"
+                  ? "bg-sky-700/80 text-white"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              高密度緩和
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                onParamChange("packingAlgorithm", "hierarchical")
+              }
+              className={`py-1 px-1 rounded text-[10px] font-medium transition-all text-center ${
+                params.packingAlgorithm === "hierarchical"
+                  ? "bg-sky-700/80 text-white"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              階層充填
+            </button>
+            <button
+              type="button"
+              onClick={() => onParamChange("packingAlgorithm", "random")}
+              className={`py-1 px-1 rounded text-[10px] font-medium transition-all text-center ${
+                params.packingAlgorithm === "random"
+                  ? "bg-sky-700/80 text-white"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              高速ランダム
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-[10px] text-slate-400 leading-tight">
+          {params.packingAlgorithm === "maximal" &&
+            "最大の空隙に限界サイズの円を次々配置する高充填型。最少の円数で球面の表面積を大胆にカバー (推奨)"}
+          {params.packingAlgorithm === "powerlaw" &&
+            "フラクタル黄金比率（べき乗則）に基づき、接する円の谷間に次々とカチッと噛み合わせる高速連鎖成長"}
           {params.packingAlgorithm === "relaxation" &&
-            "接触反発と空間膨張シミュレーションにより、隙間を極限まで埋める高密度充填 (推奨)"}
+            "接触反発と空間膨張シミュレーションにより、隙間を極限まで埋める高密度充填"}
           {params.packingAlgorithm === "hierarchical" &&
             "大円を配置後に残余ボイドを探索し、中円・小円を吸着させるアポロニアン充填"}
           {params.packingAlgorithm === "random" &&

@@ -507,6 +507,346 @@ function computeFastRandomPacking(
 }
 
 /**
+ * 2つの球面上の円 (pA, rA) と (pB, rB) に対し、
+ * 両方に外接する半径 rC の新しい円の中心候補 (最大2点) を算出する
+ */
+function findTangentCircleCentersOnSphere(
+  pA: RawCircle,
+  pB: RawCircle,
+  rC: number,
+  gap: number,
+): [RawCircle, RawCircle] | null {
+  const dA = Math.cos(pA.radius + rC + gap);
+  const dB = Math.cos(pB.radius + rC + gap);
+  const dot = pA.x * pB.x + pA.y * pB.y + pA.z * pB.z;
+
+  const det = 1 - dot * dot;
+  if (det < 1e-7) return null;
+
+  const a = (dA - dB * dot) / det;
+  const b = (dB - dA * dot) / det;
+
+  const x0 = a * pA.x + b * pB.x;
+  const y0 = a * pA.y + b * pB.y;
+  const z0 = a * pA.z + b * pB.z;
+
+  const lenSq = x0 * x0 + y0 * y0 + z0 * z0;
+  if (lenSq > 1.0) return null;
+
+  const crossX = pA.y * pB.z - pA.z * pB.y;
+  const crossY = pA.z * pB.x - pA.x * pB.z;
+  const crossZ = pA.x * pB.y - pA.y * pB.x;
+  const crossLen = Math.sqrt(
+    crossX * crossX + crossY * crossY + crossZ * crossZ,
+  );
+  if (crossLen < 1e-7) return null;
+
+  const normCrossX = crossX / crossLen;
+  const normCrossY = crossY / crossLen;
+  const normCrossZ = crossZ / crossLen;
+
+  const h = Math.sqrt(Math.max(0, 1.0 - lenSq));
+
+  const cand1: RawCircle = {
+    x: x0 + h * normCrossX,
+    y: y0 + h * normCrossY,
+    z: z0 + h * normCrossZ,
+    radius: rC,
+  };
+
+  const cand2: RawCircle = {
+    x: x0 - h * normCrossX,
+    y: y0 - h * normCrossY,
+    z: z0 - h * normCrossZ,
+    radius: rC,
+  };
+
+  return [cand1, cand2];
+}
+
+/**
+ * 候補円が既存の全円と衝突 (重なり) していないかを検証
+ */
+function isCircleValid(
+  cand: RawCircle,
+  circles: RawCircle[],
+  minGap: number,
+): boolean {
+  for (let i = 0; i < circles.length; i++) {
+    const existing = circles[i];
+    const dist = computeGreatCircleDistance(
+      cand.x,
+      cand.y,
+      cand.z,
+      existing.x,
+      existing.y,
+      existing.z,
+    );
+    if (dist < cand.radius + existing.radius + minGap) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * 4. 最大空隙グリーディ充填 (Maximal Inscribed Growth)
+ * 球面上の「最も広い空隙 (ボイド)」を探索し、既存円に接する限界最大半径の円を優先的に配置。
+ * 少ない円数で球面の表面積を最速・最大効率で覆い尽くし、大胆なメリハリと洗練されたランダム感を両立する。
+ */
+function computeMaximalInscribedPacking(
+  maxCircles: number,
+  minRadius: number,
+  maxRadius: number,
+): RawCircle[] {
+  let circles: RawCircle[] = [];
+  const minGap = 0.008;
+
+  // 1. 初期シード大円配置 (球面上で互いに最も離れた点に数個の大円を配置)
+  const initialLargeCount = Math.min(
+    6,
+    Math.max(3, Math.floor(maxCircles * 0.05)),
+  );
+  for (let i = 0; i < initialLargeCount; i++) {
+    let bestX = 0;
+    let bestY = 0;
+    let bestZ = 1;
+    let maxDist = -1;
+
+    for (let s = 0; s < 45; s++) {
+      const z = Math.random() * 2 - 1;
+      const phi = Math.random() * Math.PI * 2;
+      const r_xy = Math.sqrt(Math.max(0, 1 - z * z));
+      const sx = r_xy * Math.cos(phi);
+      const sy = z;
+      const sz = r_xy * Math.sin(phi);
+
+      let minDist = 100;
+      for (let j = 0; j < circles.length; j++) {
+        const c = circles[j];
+        const d = computeGreatCircleDistance(sx, sy, sz, c.x, c.y, c.z);
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > maxDist) {
+        maxDist = minDist;
+        bestX = sx;
+        bestY = sy;
+        bestZ = sz;
+      }
+    }
+
+    const rad = maxRadius * (0.85 + 0.15 * Math.random());
+    const cand: RawCircle = { x: bestX, y: bestY, z: bestZ, radius: rad };
+    if (isCircleValid(cand, circles, minGap)) {
+      circles.push(cand);
+    }
+  }
+
+  // 2. 空隙極大充填ループ
+  const sampleBatchSize = 130;
+  while (circles.length < maxCircles) {
+    let bestCand: RawCircle | null = null;
+    let maxFoundRadius = -1;
+
+    for (let s = 0; s < sampleBatchSize; s++) {
+      const z = Math.random() * 2 - 1;
+      const phi = Math.random() * Math.PI * 2;
+      const r_xy = Math.sqrt(Math.max(0, 1 - z * z));
+      const sx = r_xy * Math.cos(phi);
+      const sy = z;
+      const sz = r_xy * Math.sin(phi);
+
+      let closestDist = 100;
+      for (let i = 0; i < circles.length; i++) {
+        const c = circles[i];
+        const d =
+          computeGreatCircleDistance(sx, sy, sz, c.x, c.y, c.z) - c.radius;
+        if (d < closestDist) {
+          closestDist = d;
+        }
+      }
+
+      const availableRadius = closestDist - minGap;
+      if (
+        availableRadius >= minRadius &&
+        availableRadius > maxFoundRadius
+      ) {
+        maxFoundRadius = availableRadius;
+        bestCand = {
+          x: sx,
+          y: sy,
+          z: sz,
+          radius: Math.min(maxRadius, availableRadius),
+        };
+      }
+    }
+
+    if (!bestCand) {
+      break; // これ以上 minRadius の円が入る隙間がない
+    }
+
+    circles.push(bestCand);
+  }
+
+  // 3. 安全な追加微小インフレーション (周囲に余白がある円を限界まで広げて充填率を極大化)
+  for (let i = 0; i < circles.length; i++) {
+    const c = circles[i];
+    if (c.radius < maxRadius) {
+      let maxGrowth = maxRadius - c.radius;
+      for (let j = 0; j < circles.length; j++) {
+        if (i === j) continue;
+        const other = circles[j];
+        const dist = computeGreatCircleDistance(
+          c.x,
+          c.y,
+          c.z,
+          other.x,
+          other.y,
+          other.z,
+        );
+        const margin = dist - c.radius - other.radius - minGap;
+        if (margin < maxGrowth) {
+          maxGrowth = Math.max(0, margin);
+        }
+      }
+      c.radius += maxGrowth * 0.95;
+    }
+  }
+
+  circles = enforceZeroOverlap(circles, minRadius, minGap);
+  return circles;
+}
+
+/**
+ * 5. べき乗則接触成長 (Power-Law Contact Packing)
+ * フラクタル次元 (D ≈ 1.3) に基づく「大中小の黄金比率 (べき乗則分布)」に従って半径を決定し、
+ * 既存円の谷間にカチッと外接させて高速に結晶成長させる。
+ * 幾何計算のすべてが閉形式で解けるため、超高速かつ高い接触充填密度を実現する。
+ */
+function computePowerLawContactPacking(
+  maxCircles: number,
+  minRadius: number,
+  maxRadius: number,
+): RawCircle[] {
+  let circles: RawCircle[] = [];
+  const frontEdges: { i: number; j: number; attempts: number }[] = [];
+  const minGap = 0.008;
+
+  // 1. べき乗則 (Zipf / Pareto) 分布に従う目標半径配列を降順生成
+  const alpha = 2.15; // フラクタル充填指数
+  const radii: number[] = [];
+  const minInv = minRadius ** (1 - alpha);
+  const maxInv = maxRadius ** (1 - alpha);
+
+  for (let i = 0; i < maxCircles; i++) {
+    const u = i / Math.max(1, maxCircles - 1);
+    const r = ((1 - u) * maxInv + u * minInv) ** (1 / (1 - alpha));
+    radii.push(Math.max(minRadius, Math.min(maxRadius, r)));
+  }
+
+  // 2. 初期シード円ペアを配置
+  const c0: RawCircle = {
+    x: 0,
+    y: 0,
+    z: 1,
+    radius: radii[0] ?? maxRadius,
+  };
+  circles.push(c0);
+
+  const r1 = radii[1] ?? minRadius;
+  const d01 = c0.radius + r1 + minGap;
+  const c1: RawCircle = {
+    x: Math.sin(d01),
+    y: 0,
+    z: Math.cos(d01),
+    radius: r1,
+  };
+  circles.push(c1);
+
+  frontEdges.push({ i: 0, j: 1, attempts: 0 });
+  frontEdges.push({ i: 1, j: 0, attempts: 0 });
+
+  // 3. べき乗半径リストに従って順次接触配置
+  for (let idx = 2; idx < radii.length; idx++) {
+    const targetRadius = radii[idx];
+    let placed = false;
+
+    // フロントエッジから優先的に接触谷間を探す
+    if (frontEdges.length > 0) {
+      const candidatesToTry = Math.min(frontEdges.length, 14);
+      for (let t = 0; t < candidatesToTry; t++) {
+        const edgeIdx = Math.floor(Math.random() * frontEdges.length);
+        const edge = frontEdges[edgeIdx];
+
+        const tangentCandidates = findTangentCircleCentersOnSphere(
+          circles[edge.i],
+          circles[edge.j],
+          targetRadius,
+          minGap,
+        );
+
+        if (tangentCandidates) {
+          for (const cand of tangentCandidates) {
+            if (isCircleValid(cand, circles, minGap)) {
+              const newIdx = circles.length;
+              circles.push(cand);
+
+              frontEdges.splice(edgeIdx, 1);
+              frontEdges.push({ i: edge.i, j: newIdx, attempts: 0 });
+              frontEdges.push({ i: newIdx, j: edge.j, attempts: 0 });
+
+              placed = true;
+              break;
+            }
+          }
+        }
+        if (placed) break;
+      }
+    }
+
+    // 谷間に入らなかった場合は、ランダム空隙に配置して新たな接触エッジを形成
+    if (!placed) {
+      for (let s = 0; s < 30; s++) {
+        const z = Math.random() * 2 - 1;
+        const phi = Math.random() * Math.PI * 2;
+        const r_xy = Math.sqrt(Math.max(0, 1 - z * z));
+        const cand: RawCircle = {
+          x: r_xy * Math.cos(phi),
+          y: z,
+          z: r_xy * Math.sin(phi),
+          radius: targetRadius,
+        };
+        if (isCircleValid(cand, circles, minGap)) {
+          const newIdx = circles.length;
+          circles.push(cand);
+
+          for (let k = 0; k < circles.length - 1; k++) {
+            const dist = computeGreatCircleDistance(
+              cand.x,
+              cand.y,
+              cand.z,
+              circles[k].x,
+              circles[k].y,
+              circles[k].z,
+            );
+            if (dist < cand.radius + circles[k].radius + minGap * 3) {
+              frontEdges.push({ i: k, j: newIdx, attempts: 0 });
+              frontEdges.push({ i: newIdx, j: k, attempts: 0 });
+            }
+          }
+          placed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // 4. 重なりゼロの完全保証
+  circles = enforceZeroOverlap(circles, minRadius, minGap);
+  return circles;
+}
+
+/**
  * 球面上の正確なサークルパッキングを計算・生成するディスパッチ関数
  */
 export function computeSphericalCirclePacking(
@@ -518,7 +858,7 @@ export function computeSphericalCirclePacking(
     maxRadius,
     palette,
     isExclusiveBackground,
-    algorithm = "relaxation",
+    algorithm = "maximal",
   } = options;
 
   const paletteColorsList = palette.colors;
@@ -529,6 +869,20 @@ export function computeSphericalCirclePacking(
 
   let rawCircles: RawCircle[];
   switch (algorithm) {
+    case "maximal":
+      rawCircles = computeMaximalInscribedPacking(
+        maxCircles,
+        minRadius,
+        maxRadius,
+      );
+      break;
+    case "powerlaw":
+      rawCircles = computePowerLawContactPacking(
+        maxCircles,
+        minRadius,
+        maxRadius,
+      );
+      break;
     case "hierarchical":
       rawCircles = computeHierarchicalPacking(
         maxCircles,

@@ -17,7 +17,7 @@ const initialParams: SketchParams = {
   morphProgress: 0.0,
   projectionScale: 0.6,
   projectionMethod: "winkel",
-  packingAlgorithm: "relaxation",
+  packingAlgorithm: "maximal",
   gridLayerMode: "underlay",
   isAutoMorph: true,
   rotationSpeed: 1.0,
