@@ -1,11 +1,9 @@
 import { useAtom } from "jotai";
 import {
-  Activity,
-  Compass,
-  Globe,
-  Play,
-  RotateCw,
-  UnfoldHorizontal,
+  ActivityIcon,
+  GlobeIcon,
+  PlayIcon,
+  RotateCwIcon,
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef } from "react";
@@ -54,15 +52,20 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
   }, [params.isAutoMorph]);
 
   return (
-    <div className="space-y-4 text-xs">
+    <div className="space-y-3 bg-white/50 backdrop-blur-md p-3.5 rounded-md border border-white/50 shadow-xs">
+      <div className="font-bold text-gray-900 flex items-center gap-2 text-xs">
+        <GlobeIcon className="w-4 h-4 text-gray-700" />
+        地図投影 &amp; 展開モーフィング
+      </div>
+
       {/* モーフィングスライダー */}
-      <div>
-        <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
-          <span className="flex items-center gap-1.5">
-            <Globe className="w-3.5 h-3.5 text-sky-400" />
-            展開モーフィング (Morph)
-          </span>
-          <span ref={labelRef} className="font-mono text-slate-400">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
+          <span>展開モーフィング (Morph)</span>
+          <span
+            ref={labelRef}
+            className="font-mono text-gray-900 font-semibold"
+          >
             {params.morphProgress.toFixed(2)}
           </span>
         </div>
@@ -89,30 +92,27 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
               onParamChange("isAutoMorph", false);
             }
           }}
-          className="w-full accent-sky-400 cursor-pointer"
+          className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
         />
-        <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
+        <div className="flex justify-between text-[10px] text-gray-500">
           <span>3D 球面 (0.0)</span>
           <span>2D 平面展開 (1.0)</span>
         </div>
       </div>
 
       {/* 展開アニメーション方式 (Transition Style) */}
-      <div>
-        <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
-          <span className="flex items-center gap-1.5">
-            <UnfoldHorizontal className="w-3.5 h-3.5 text-sky-400" />
-            展開の開き方 (Transition)
-          </span>
-        </div>
-        <div className="grid grid-cols-3 gap-1 p-1 bg-slate-950/60 rounded-lg border border-slate-800">
+      <div className="space-y-1">
+        <span className="text-[11px] text-gray-600 block font-medium">
+          展開の開き方 (Transition)
+        </span>
+        <div className="grid grid-cols-3 gap-1 p-1 bg-gray-100/80 rounded-md border border-gray-200/80">
           <button
             type="button"
             onClick={() => onParamChange("morphTransitionMode", "direct")}
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+            className={`py-1 px-1 rounded text-[11px] font-medium transition-all text-center cursor-pointer ${
               params.morphTransitionMode === "direct"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-300 hover:text-white hover:bg-slate-900"
+                ? "bg-gray-900 text-white shadow-xs"
+                : "text-gray-700 hover:text-gray-900 hover:bg-white/80"
             }`}
           >
             ダイレクト
@@ -122,10 +122,10 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
             onClick={() =>
               onParamChange("morphTransitionMode", "cylinder")
             }
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+            className={`py-1 px-1 rounded text-[11px] font-medium transition-all text-center cursor-pointer ${
               params.morphTransitionMode === "cylinder"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-300 hover:text-white hover:bg-slate-900"
+                ? "bg-gray-900 text-white shadow-xs"
+                : "text-gray-700 hover:text-gray-900 hover:bg-white/80"
             }`}
           >
             1. 円筒展開
@@ -133,18 +133,18 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
           <button
             type="button"
             onClick={() => onParamChange("morphTransitionMode", "unroll")}
-            className={`py-1.5 px-1 rounded text-[11px] font-medium transition-all text-center ${
+            className={`py-1 px-1 rounded text-[11px] font-medium transition-all text-center cursor-pointer ${
               params.morphTransitionMode === "unroll"
-                ? "bg-sky-600 text-white shadow-sm"
-                : "text-slate-300 hover:text-white hover:bg-slate-900"
+                ? "bg-gray-900 text-white shadow-xs"
+                : "text-gray-700 hover:text-gray-900 hover:bg-white/80"
             }`}
           >
             2. 両開き展開
           </button>
         </div>
-        <p className="mt-1 text-[10px] text-slate-400 leading-tight">
+        <p className="text-[10px] text-gray-500 leading-tight pt-0.5">
           {params.morphTransitionMode === "direct" &&
-            "従来の直線ワープ。自転しながら画面上で直線的に四角形へと変形吸着"}
+            "直線ワープ。自転しながら画面上で直線的に四角形へと変形吸着"}
           {params.morphTransitionMode === "cylinder" &&
             "シリンダー経由。球体が円筒を経て裏側の継ぎ目から左右にパカッと開く等長アンロール"}
           {params.morphTransitionMode === "unroll" &&
@@ -152,13 +152,16 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
         </p>
       </div>
 
-      {/* 投影法選択 */}
-      <div>
-        <span className="flex items-center gap-1.5 text-slate-300 font-medium mb-1.5">
-          <Compass className="w-3.5 h-3.5 text-indigo-400" />
+      {/* 地図投影法選択 */}
+      <div className="space-y-1">
+        <label
+          htmlFor="projection-method-select"
+          className="text-[11px] text-gray-600 block font-medium"
+        >
           地図投影法 (Projection)
-        </span>
+        </label>
         <select
+          id="projection-method-select"
           value={params.projectionMethod}
           onChange={(e) =>
             onParamChange(
@@ -166,7 +169,7 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
               e.target.value as ProjectionMethod,
             )
           }
-          className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none focus:border-indigo-400"
+          className="w-full bg-white/70 hover:bg-white/95 border border-gray-300/80 text-gray-900 rounded p-1.5 text-xs focus:ring-1 focus:ring-gray-900 focus:outline-none cursor-pointer shadow-2xs transition"
         >
           {PROJECTION_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -174,7 +177,7 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
             </option>
           ))}
         </select>
-        <p className="text-[10px] text-slate-500 mt-1">
+        <p className="text-[10px] text-gray-500">
           {
             PROJECTION_OPTIONS.find(
               (o) => o.value === params.projectionMethod,
@@ -184,10 +187,10 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
       </div>
 
       {/* 展開スケール倍率 */}
-      <div>
-        <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
           <span>展開後スケール倍率</span>
-          <span className="font-mono text-slate-400">
+          <span className="font-mono text-gray-900 font-semibold">
             {params.projectionScale.toFixed(2)}x
           </span>
         </div>
@@ -203,38 +206,43 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
               Number.parseFloat(e.target.value),
             )
           }
-          className="w-full accent-sky-400 cursor-pointer"
+          className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
         />
       </div>
 
       {/* 自動モーフィング & 回転速度 */}
-      <div className="pt-2 border-t border-slate-800/80 space-y-3">
-        <label className="flex items-center gap-2 cursor-pointer select-none text-slate-300">
-          <input
-            type="checkbox"
-            checked={params.isAutoMorph}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              if (!checked) {
-                onParamChange("morphProgress", liveMorphProgress.value);
-              }
-              onParamChange("isAutoMorph", checked);
-            }}
-            className="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0 w-3.5 h-3.5"
-          />
-          <Play className="w-3.5 h-3.5 text-emerald-400" />
-          <span>自動モーフィングアニメーション</span>
-        </label>
+      <div className="pt-2 border-t border-gray-200/60 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-gray-700 font-semibold text-xs flex items-center gap-1.5">
+            <PlayIcon className="w-3.5 h-3.5 text-emerald-600" />
+            自動モーフィングアニメーション
+          </span>
+          <label className="relative inline-flex items-center cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={params.isAutoMorph}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                if (!checked) {
+                  onParamChange("morphProgress", liveMorphProgress.value);
+                }
+                onParamChange("isAutoMorph", checked);
+              }}
+              className="sr-only peer"
+            />
+            <div className="w-9 h-5 bg-gray-200/80 border border-gray-300/80 rounded-full peer peer-checked:bg-emerald-600 peer-checked:border-emerald-500 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4 shadow-2xs" />
+          </label>
+        </div>
 
-        {/* 自動モーフィングがオンのときのみ表示されるモーフィング速度スライダ */}
+        {/* 自動モーフィングON時のみ表示されるモーフィング速度スライダ */}
         {params.isAutoMorph && (
-          <div className="pl-2 border-l-2 border-sky-500/40 space-y-1.5 transition-all">
-            <div className="flex items-center justify-between text-slate-300 font-medium">
-              <span className="flex items-center gap-1.5">
-                <Activity className="w-3.5 h-3.5 text-sky-400" />
-                モーフィング速度 (Morph Speed)
+          <div className="space-y-1 pl-2 border-l-2 border-emerald-500/50 bg-emerald-50/40 p-1.5 rounded-r">
+            <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
+              <span className="flex items-center gap-1">
+                <ActivityIcon className="w-3.5 h-3.5 text-emerald-600" />
+                モーフィング速度
               </span>
-              <span className="font-mono text-slate-400">
+              <span className="font-mono text-gray-900 font-semibold">
                 {params.morphSpeed.toFixed(1)}x
               </span>
             </div>
@@ -250,18 +258,18 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
                   Number.parseFloat(e.target.value),
                 )
               }
-              className="w-full accent-sky-400 cursor-pointer"
+              className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
             />
           </div>
         )}
 
-        <div>
-          <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
-            <span className="flex items-center gap-1.5">
-              <RotateCw className="w-3.5 h-3.5 text-amber-400" />
-              自転速度 (Rotation Speed)
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
+            <span className="flex items-center gap-1">
+              <RotateCwIcon className="w-3.5 h-3.5 text-amber-600" />
+              自転速度 (Rotation)
             </span>
-            <span className="font-mono text-slate-400">
+            <span className="font-mono text-gray-900 font-semibold">
               {params.rotationSpeed.toFixed(1)}x
             </span>
           </div>
@@ -277,7 +285,7 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
                 Number.parseFloat(e.target.value),
               )
             }
-            className="w-full accent-amber-400 cursor-pointer"
+            className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
           />
         </div>
       </div>

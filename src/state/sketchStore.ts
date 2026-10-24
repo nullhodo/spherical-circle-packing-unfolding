@@ -49,19 +49,39 @@ export const circlesAtom = atom<SphericalCircle[]>([]);
 
 export const randomTargetsAtom = atom<RandomTargets>({
   palette: true,
-  projection: true,
-  counts: true,
+  paletteShuffle: true,
+  projectionMethod: true,
+  morphTransitionMode: false,
+  projectionScale: false,
+  rotationSpeed: false,
+  morphSpeed: false,
+  maxCircles: true,
+  minRadius: true,
+  maxRadius: true,
+  showStroke: true,
+  strokeWeight: false,
+  circleSegments: false,
+  showGrid: false,
+  isExclusiveBackground: true,
 });
+
+export const isRandomTargetsModalOpenAtom = atom<boolean>(false);
 
 export const isPanelOpenAtom = atom<boolean>(true);
 
 export const recordingStateAtom = atom<RecordingState>({
   isRecording: false,
   elapsedSeconds: 0,
+  isLoopMode: false,
+  currentLoop: 1,
+  totalLoops: 2,
+  loopIntervalMs: 4000,
 });
 
 export const isAutoCycleActiveAtom = atom<boolean>(false);
 export const cycleIntervalMsAtom = atom<number>(4000);
+export const autoRandomIntervalMsAtom = cycleIntervalMsAtom;
+export const isAutoRandomActiveAtom = isAutoCycleActiveAtom;
 export const targetLoopsCountAtom = atom<number>(2);
 
 interface ToastItem {

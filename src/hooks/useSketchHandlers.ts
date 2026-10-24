@@ -240,6 +240,26 @@ export function useSketchHandlers() {
     [recordHistory, setActivePalette, recomputePacking, showToast],
   );
 
+  const handleShufflePaletteColors = useCallback(() => {
+    recordHistory();
+    const currentPal = activePaletteRef.current;
+    if (!currentPal || currentPal.colors.length <= 1) return;
+
+    const colors = [...currentPal.colors];
+    const nonBg = colors.slice(1);
+    for (let i = nonBg.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+    }
+    const updatedPalette: Palette = {
+      ...currentPal,
+      colors: [colors[0], ...nonBg],
+    };
+    setActivePalette(updatedPalette);
+    recomputePacking(undefined, updatedPalette);
+    showToast("パレット配色をシャッフルしました", "info");
+  }, [recordHistory, setActivePalette, recomputePacking, showToast]);
+
   const randomizeSelectedParameters = useCallback(() => {
     recordHistory();
     const nextUpdates: Partial<SketchParams> = {};
@@ -252,7 +272,22 @@ export function useSketchHandlers() {
       nextUpdates.activePaletteIndex = randIdx;
     }
 
-    if (randomTargets.projection) {
+    if (
+      randomTargets.paletteShuffle &&
+      nextPalette &&
+      nextPalette.colors.length > 2
+    ) {
+      const colors = [...nextPalette.colors];
+      const nonBg = colors.slice(1);
+      for (let i = nonBg.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+      }
+      nextPalette = { ...nextPalette, colors: [colors[0], ...nonBg] };
+      setActivePalette(nextPalette);
+    }
+
+    if (randomTargets.projectionMethod) {
       const randProj =
         PROJECTION_OPTIONS[
           Math.floor(Math.random() * PROJECTION_OPTIONS.length)
@@ -260,22 +295,95 @@ export function useSketchHandlers() {
       nextUpdates.projectionMethod = randProj;
     }
 
-    if (randomTargets.counts) {
-      const randMaxCircles = Math.floor(Math.random() * 450) + 150;
+    if (randomTargets.morphTransitionMode) {
+      const modes: ("direct" | "cylinder" | "unroll")[] = [
+        "direct",
+        "cylinder",
+        "unroll",
+      ];
+      nextUpdates.morphTransitionMode =
+        modes[Math.floor(Math.random() * modes.length)];
+    }
+
+    if (randomTargets.projectionScale) {
+      nextUpdates.projectionScale = Number.parseFloat(
+        (Math.random() * 1.5 + 0.6).toFixed(2),
+      );
+    }
+
+    if (randomTargets.rotationSpeed) {
+      nextUpdates.rotationSpeed = Number.parseFloat(
+        (Math.random() * 2.0 + 0.5).toFixed(1),
+      );
+    }
+
+    if (randomTargets.morphSpeed) {
+      nextUpdates.morphSpeed = Number.parseFloat(
+        (Math.random() * 2.0 + 0.5).toFixed(1),
+      );
+    }
+
+    let needRecompute =
+      randomTargets.palette || randomTargets.paletteShuffle;
+
+    if (randomTargets.maxCircles) {
+      nextUpdates.maxCircles = Math.floor(Math.random() * 450) + 150;
+      needRecompute = true;
+    }
+
+    if (randomTargets.minRadius || randomTargets.maxRadius) {
       const randMin = Number.parseFloat(
-        (Math.random() * 0.05 + 0.02).toFixed(2),
+        (Math.random() * 0.04 + 0.005).toFixed(3),
       );
       const randMax = Number.parseFloat(
-        (Math.random() * 0.25 + 0.15).toFixed(2),
+        (Math.random() * 0.3 + 0.15).toFixed(2),
       );
-      nextUpdates.maxCircles = randMaxCircles;
-      nextUpdates.minRadius = randMin;
-      nextUpdates.maxRadius = Math.max(randMin + 0.04, randMax);
+      if (randomTargets.minRadius) nextUpdates.minRadius = randMin;
+      if (randomTargets.maxRadius)
+        nextUpdates.maxRadius = Math.max(randMin + 0.03, randMax);
+      needRecompute = true;
+    }
+
+    if (randomTargets.circleSegments) {
+      const segs = [32, 64, 128];
+      nextUpdates.circleSegments =
+        segs[Math.floor(Math.random() * segs.length)];
+    }
+
+    if (randomTargets.showStroke) {
+      nextUpdates.showStroke = Math.random() > 0.5;
+    }
+
+    if (randomTargets.strokeWeight) {
+      nextUpdates.strokeWeight = Number.parseFloat(
+        (Math.random() * 2.5 + 0.8).toFixed(1),
+      );
+    }
+
+    if (randomTargets.showGrid) {
+      nextUpdates.showGrid = Math.random() > 0.4;
+    }
+
+    if (
+      randomTargets.isExclusiveBackground &&
+      nextPalette &&
+      nextPalette.colors.length > 1
+    ) {
+      const colors = [...nextPalette.colors];
+      const pickIdx = Math.floor(Math.random() * colors.length);
+      const [chosen] = colors.splice(pickIdx, 1);
+      colors.unshift(chosen);
+      nextPalette = { ...nextPalette, colors };
+      setActivePalette(nextPalette);
+      nextUpdates.isExclusiveBackground = true;
+      needRecompute = true;
     }
 
     setParams((prev) => ({ ...prev, ...nextUpdates }));
-    recomputePacking(nextUpdates, nextPalette);
-    showToast("パラメータをランダム設定しました", "success");
+    if (needRecompute) {
+      recomputePacking(nextUpdates, nextPalette);
+    }
+    showToast("選択パラメータをランダム設定しました", "success");
   }, [
     recordHistory,
     randomTargets,
@@ -373,6 +481,7 @@ export function useSketchHandlers() {
     recomputePacking,
     handleApplyPalette,
     handlePickRandomPalette,
+    handleShufflePaletteColors,
     handleRandomizeBackgroundColor,
     handleSetBackgroundColor,
     handleGenerateGradientTheme,

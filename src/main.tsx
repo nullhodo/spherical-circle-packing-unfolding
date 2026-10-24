@@ -122,6 +122,7 @@ const App: React.FC = () => {
     recomputePacking,
     handleApplyPalette,
     handlePickRandomPalette,
+    handleShufflePaletteColors,
     handleGenerateGradientTheme,
     handleRandomizeBackgroundColor,
     handleSetBackgroundColor,
@@ -480,7 +481,7 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950">
+    <div className="relative w-screen h-screen overflow-hidden bg-zinc-950">
       {/* p5 Canvas Container */}
       <div
         ref={p5ContainerRef}
@@ -493,6 +494,7 @@ const App: React.FC = () => {
         onRecomputePacking={recomputePacking}
         onApplyPalette={handleApplyPalette}
         onPickRandomPalette={handlePickRandomPalette}
+        onShufflePaletteColors={handleShufflePaletteColors}
         onGenerateGradientTheme={handleGenerateGradientTheme}
         onRandomizeBackgroundColor={handleRandomizeBackgroundColor}
         onSetBackgroundColor={handleSetBackgroundColor}
@@ -509,7 +511,7 @@ const App: React.FC = () => {
       />
 
       {/* Recording Overlay */}
-      <RecordingOverlay />
+      <RecordingOverlay onStopRecord={handleStopRecord} />
 
       {/* Toast Notifications */}
       <ToastNotification />

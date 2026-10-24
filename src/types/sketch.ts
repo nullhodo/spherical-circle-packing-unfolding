@@ -62,13 +62,27 @@ export interface SketchParams {
 
 export interface RandomTargets {
   palette: boolean;
-  projection: boolean;
-  counts: boolean;
+  paletteShuffle: boolean;
+  projectionMethod: boolean;
+  morphTransitionMode: boolean;
+  projectionScale: boolean;
+  rotationSpeed: boolean;
+  morphSpeed: boolean;
+  maxCircles: boolean;
+  minRadius: boolean;
+  maxRadius: boolean;
+  showStroke: boolean;
+  strokeWeight: boolean;
+  circleSegments: boolean;
+  showGrid: boolean;
+  isExclusiveBackground: boolean;
 }
 
 export interface RecordingState {
   isRecording: boolean;
   elapsedSeconds: number;
+  isLoopMode?: boolean;
   currentLoop?: number;
   totalLoops?: number;
+  loopIntervalMs?: number;
 }
