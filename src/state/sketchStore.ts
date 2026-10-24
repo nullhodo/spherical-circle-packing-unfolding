@@ -16,7 +16,7 @@ const defaultPaletteIndex = oceanicSlateIndex >= 0 ? oceanicSlateIndex : 0;
 const initialParams: SketchParams = {
   morphProgress: 0.0,
   projectionScale: 0.6,
-  projectionMethod: "winkel",
+  projectionMethod: "mercator",
   packingAlgorithm: "maximal",
   gridLayerMode: "underlay",
   isAutoMorph: true,
