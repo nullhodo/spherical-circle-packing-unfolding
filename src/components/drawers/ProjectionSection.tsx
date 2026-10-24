@@ -1,8 +1,12 @@
 import { useAtom } from "jotai";
-import { Compass, Globe, Play, RotateCw } from "lucide-react";
+import { Activity, Compass, Globe, Play, RotateCw } from "lucide-react";
 import type React from "react";
+import { useEffect, useRef } from "react";
 import { PROJECTION_OPTIONS } from "../../constants/projections";
-import { sketchParamsAtom } from "../../state/sketchStore";
+import {
+  liveMorphProgress,
+  sketchParamsAtom,
+} from "../../state/sketchStore";
 import type { ProjectionMethod } from "../../types/sketch";
 
 interface Props {
@@ -17,6 +21,30 @@ interface Props {
 
 export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
   const [params] = useAtom(sketchParamsAtom);
+  const sliderRef = useRef<HTMLInputElement>(null);
+  const labelRef = useRef<HTMLSpanElement>(null);
+
+  // 自動モーフィングアニメーションがオンのとき、スライダーと数値を高精度・軽量にリアルタイム追従させる
+  useEffect(() => {
+    if (!params.isAutoMorph) return;
+
+    let animId: number;
+    const update = () => {
+      const val = liveMorphProgress.value;
+      if (sliderRef.current) {
+        sliderRef.current.value = val.toString();
+      }
+      if (labelRef.current) {
+        labelRef.current.textContent = val.toFixed(2);
+      }
+      animId = requestAnimationFrame(update);
+    };
+
+    animId = requestAnimationFrame(update);
+    return () => {
+      cancelAnimationFrame(animId);
+    };
+  }, [params.isAutoMorph]);
 
   return (
     <div className="space-y-4 text-xs">
@@ -27,11 +55,12 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
             <Globe className="w-3.5 h-3.5 text-sky-400" />
             展開モーフィング (Morph)
           </span>
-          <span className="font-mono text-slate-400">
+          <span ref={labelRef} className="font-mono text-slate-400">
             {params.morphProgress.toFixed(2)}
           </span>
         </div>
         <input
+          ref={sliderRef}
           type="range"
           min="0"
           max="1"
@@ -122,14 +151,47 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
           <input
             type="checkbox"
             checked={params.isAutoMorph}
-            onChange={(e) =>
-              onParamChange("isAutoMorph", e.target.checked)
-            }
+            onChange={(e) => {
+              const checked = e.target.checked;
+              if (!checked) {
+                onParamChange("morphProgress", liveMorphProgress.value);
+              }
+              onParamChange("isAutoMorph", checked);
+            }}
             className="rounded bg-slate-800 border-slate-700 text-sky-500 focus:ring-0 w-3.5 h-3.5"
           />
           <Play className="w-3.5 h-3.5 text-emerald-400" />
           <span>自動モーフィングアニメーション</span>
         </label>
+
+        {/* 自動モーフィングがオンのときのみ表示されるモーフィング速度スライダ */}
+        {params.isAutoMorph && (
+          <div className="pl-2 border-l-2 border-sky-500/40 space-y-1.5 transition-all">
+            <div className="flex items-center justify-between text-slate-300 font-medium">
+              <span className="flex items-center gap-1.5">
+                <Activity className="w-3.5 h-3.5 text-sky-400" />
+                モーフィング速度 (Morph Speed)
+              </span>
+              <span className="font-mono text-slate-400">
+                {params.morphSpeed.toFixed(1)}x
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.1"
+              max="3"
+              step="0.1"
+              value={params.morphSpeed}
+              onChange={(e) =>
+                onParamChange(
+                  "morphSpeed",
+                  Number.parseFloat(e.target.value),
+                )
+              }
+              className="w-full accent-sky-400 cursor-pointer"
+            />
+          </div>
+        )}
 
         <div>
           <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">

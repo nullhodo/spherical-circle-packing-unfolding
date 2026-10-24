@@ -26,6 +26,7 @@ import {
   cycleIntervalMsAtom,
   isAutoCycleActiveAtom,
   isPanelOpenAtom,
+  liveMorphProgress,
   recordingStateAtom,
   sketchParamsAtom,
   targetLoopsCountAtom,
@@ -335,10 +336,11 @@ const App: React.FC = () => {
 
         // Auto morphing sine animation
         if (currentParams.isAutoMorph) {
-          morphPhaseAngleRef.current += 0.01 * currentParams.rotationSpeed;
+          morphPhaseAngleRef.current += 0.01 * currentParams.morphSpeed;
           const nextMorph =
             0.5 - 0.5 * Math.cos(morphPhaseAngleRef.current);
           currentParams.morphProgress = nextMorph;
+          liveMorphProgress.value = nextMorph;
         }
 
         // Auto rotation

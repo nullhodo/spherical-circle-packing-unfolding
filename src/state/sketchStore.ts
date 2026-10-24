@@ -21,6 +21,7 @@ const initialParams: SketchParams = {
   gridLayerMode: "underlay",
   isAutoMorph: true,
   rotationSpeed: 1.0,
+  morphSpeed: 1.0,
   maxCircles: 380,
   minRadius: 0.02,
   maxRadius: 0.5,
@@ -34,6 +35,8 @@ const initialParams: SketchParams = {
   showFilmGrain: true,
   isDebugMode: false,
 };
+
+export const liveMorphProgress = { value: 0.0 };
 
 export const sketchParamsAtom = atom<SketchParams>(initialParams);
 

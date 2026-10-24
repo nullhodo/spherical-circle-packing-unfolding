@@ -8,6 +8,7 @@ import {
   circlesAtom,
   historyRedoAtom,
   historyUndoAtom,
+  liveMorphProgress,
   randomTargetsAtom,
   sketchParamsAtom,
   toastsAtom,
@@ -77,8 +78,14 @@ export function useSketchHandlers() {
       if (!skipHistory) {
         recordHistory();
       }
+      if (key === "morphProgress") {
+        liveMorphProgress.value = value as number;
+      }
       setParams((prev) => {
         const next = { ...prev, [key]: value };
+        if (key === "isAutoMorph" && !value) {
+          next.morphProgress = liveMorphProgress.value;
+        }
         return next;
       });
 

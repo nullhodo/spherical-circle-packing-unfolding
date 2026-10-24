@@ -43,6 +43,7 @@ export interface SketchParams {
   gridLayerMode: GridLayerMode;
   isAutoMorph: boolean;
   rotationSpeed: number;
+  morphSpeed: number;
   maxCircles: number;
   minRadius: number;
   maxRadius: number;
