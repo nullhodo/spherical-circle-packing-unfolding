@@ -53,6 +53,7 @@ export interface SketchParams {
   strokeWeight: number;
   circleSegments: number;
   fitSphericalSurface: boolean;
+  domeRings: number;
   showGrid: boolean;
   activePaletteIndex: number;
   isExclusiveBackground: boolean;
@@ -74,6 +75,7 @@ export interface RandomTargets {
   showStroke: boolean;
   strokeWeight: boolean;
   circleSegments: boolean;
+  domeRings: boolean;
   showGrid: boolean;
   isExclusiveBackground: boolean;
 }

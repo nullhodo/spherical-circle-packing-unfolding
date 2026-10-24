@@ -221,6 +221,37 @@ export const PackingSection: React.FC<Props> = ({
           </label>
         </div>
 
+        {params.fitSphericalSurface && (
+          <div className="pt-1 pl-2 border-l-2 border-emerald-500/40 space-y-1">
+            <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
+              <span>球面フィット精度 (Dome Rings)</span>
+              <span className="font-mono text-gray-900 font-semibold">
+                {params.domeRings} 段
+              </span>
+            </div>
+            <input
+              type="range"
+              min="1"
+              max="16"
+              step="1"
+              value={params.domeRings}
+              onChange={(e) =>
+                onParamChange(
+                  "domeRings",
+                  Number.parseInt(e.target.value, 10),
+                )
+              }
+              className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-gray-500">
+              <span>軽量(1)</span>
+              <span>標準(4)</span>
+              <span>高精細(8)</span>
+              <span>極限(16)</span>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between">
           <span className="text-gray-700 font-semibold text-xs flex items-center gap-1.5">
             <GridIcon className="w-3.5 h-3.5 text-gray-700" />

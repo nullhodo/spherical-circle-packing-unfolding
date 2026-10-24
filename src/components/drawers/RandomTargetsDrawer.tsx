@@ -50,6 +50,7 @@ export const RandomTargetsDrawer: React.FC = () => {
       showStroke: enable,
       strokeWeight: enable,
       circleSegments: enable,
+      domeRings: enable,
       showGrid: enable,
       isExclusiveBackground: enable,
     });
@@ -125,6 +126,11 @@ export const RandomTargetsDrawer: React.FC = () => {
           key: "circleSegments",
           label: "円の分割精度",
           desc: "メッシュ頂点数 (16〜256)",
+        },
+        {
+          key: "domeRings",
+          label: "球面フィット精度",
+          desc: "同心リング分割段数 (1〜16)",
         },
       ],
     },

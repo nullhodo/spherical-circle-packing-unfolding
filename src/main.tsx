@@ -418,6 +418,7 @@ const App: React.FC = () => {
           strokeWeight: currentParams.strokeWeight,
           circleSegments: currentParams.circleSegments,
           fitSphericalSurface: currentParams.fitSphericalSurface,
+          domeRings: currentParams.domeRings,
         });
 
         // Front layer graticule grid lines

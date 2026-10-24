@@ -20,6 +20,7 @@ interface CircleRenderOptions {
   strokeWeight: number;
   circleSegments?: number;
   fitSphericalSurface?: boolean;
+  domeRings?: number;
 }
 
 interface SphericalPoint {
@@ -85,7 +86,7 @@ function computeScreenPosition(
 
 /**
  * 球面の曲率にフィットした同心リングメッシュ (Spherical Dome Mesh) を描画する関数
- * 半径に応じた適応型LODと三角関数テーブル参照により、見た目を変えずに超軽量化
+ * 半径に応じた適応型LODと三角関数テーブル参照により、見た目を変えずに超軽量化・高精細化
  */
 function renderSphericalFittedCircle(
   p5Instance: p5,
@@ -100,10 +101,19 @@ function renderSphericalFittedCircle(
   showStroke: boolean,
   circleVerticesCount: number,
   transitionMode: MorphTransitionMode = "direct",
+  domeRings = 4,
 ): void {
-  // 適応型LOD: 極小円(半径<0.05rad)は球面の凹凸が0.3px未満のため中心ファンのみ(1段)、中〜大円は2段メッシュで曲面を完全再現
-  const isSmallCircle = circleData.angularRadius < 0.05;
-  const radialRings = isSmallCircle ? 1 : 2;
+  // 適応型LOD:
+  // 極小円(半径<0.03rad)は球面の凹凸がサブピクセル未満のため中心ファンのみ(1段)で十分
+  // 中〜大円はユーザー指定の domeRings(1〜16) に応じて同心リング多段メッシュを形成
+  let radialRings = 1;
+  if (circleData.angularRadius >= 0.03 && domeRings > 1) {
+    const scale = Math.min(1, circleData.angularRadius / 0.15);
+    radialRings = Math.max(
+      1,
+      Math.min(domeRings, Math.round(domeRings * scale)),
+    );
+  }
 
   // 中心点 (k = 0)
   const centerScreenPos = computeScreenPosition(
@@ -143,7 +153,7 @@ function renderSphericalFittedCircle(
   p5Instance.noStroke();
 
   if (radialRings === 1) {
-    // 極小円: 中心ファンのみ (計算量最小、見た目は真円曲面と完全一致)
+    // 1段: 中心ファンのみ (計算量最小)
     p5Instance.beginShape(p5Instance.TRIANGLE_FAN);
     p5Instance.vertex(centerScreenPos.x, centerScreenPos.y);
     for (let j = 0; j < circleVerticesCount; j++) {
@@ -152,72 +162,86 @@ function renderSphericalFittedCircle(
     p5Instance.vertex(outerRingPoints[0].x, outerRingPoints[0].y);
     p5Instance.endShape();
   } else {
-    // 中〜大円: 中間リング (k = 1) を生成
+    // 多段メッシュ: k = 1 〜 radialRings-1 の中間リング座標を生成
     const trigTable = getTrigTable(circleVerticesCount);
-    const ringRadius = circleData.angularRadius * 0.5;
-    const cosRingRad = Math.cos(ringRadius);
-    const sinRingRad = Math.sin(ringRadius);
     const needLonLat = currentMorphProgress > 1e-4;
 
-    const midRingPoints: { x: number; y: number }[] = [];
-    for (let j = 0; j < circleVerticesCount; j++) {
-      const cosP = trigTable.cos[j];
-      const sinP = trigTable.sin[j];
+    const allRings: { x: number; y: number }[][] = new Array(
+      radialRings + 1,
+    );
+    allRings[radialRings] = outerRingPoints;
 
-      const px =
-        circleData.normalVector[0] * cosRingRad +
-        (circleData.basisVectorU[0] * cosP +
-          circleData.basisVectorV[0] * sinP) *
-          sinRingRad;
-      const py =
-        circleData.normalVector[1] * cosRingRad +
-        (circleData.basisVectorU[1] * cosP +
-          circleData.basisVectorV[1] * sinP) *
-          sinRingRad;
-      const pz =
-        circleData.normalVector[2] * cosRingRad +
-        (circleData.basisVectorU[2] * cosP +
-          circleData.basisVectorV[2] * sinP) *
-          sinRingRad;
+    for (let k = 1; k < radialRings; k++) {
+      const ringRadius = circleData.angularRadius * (k / radialRings);
+      const cosRingRad = Math.cos(ringRadius);
+      const sinRingRad = Math.sin(ringRadius);
+      const ringPoints: { x: number; y: number }[] = [];
 
-      const lon = needLonLat ? Math.atan2(pz, px) : 0;
-      const lat = needLonLat
-        ? Math.asin(Math.max(-1, Math.min(1, py)))
-        : 0;
+      for (let j = 0; j < circleVerticesCount; j++) {
+        const cosP = trigTable.cos[j];
+        const sinP = trigTable.sin[j];
 
-      midRingPoints.push(
-        computeScreenPosition(
-          [px, py, pz],
-          lon,
-          lat,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          transitionMode,
-        ),
-      );
+        const px =
+          circleData.normalVector[0] * cosRingRad +
+          (circleData.basisVectorU[0] * cosP +
+            circleData.basisVectorV[0] * sinP) *
+            sinRingRad;
+        const py =
+          circleData.normalVector[1] * cosRingRad +
+          (circleData.basisVectorU[1] * cosP +
+            circleData.basisVectorV[1] * sinP) *
+            sinRingRad;
+        const pz =
+          circleData.normalVector[2] * cosRingRad +
+          (circleData.basisVectorU[2] * cosP +
+            circleData.basisVectorV[2] * sinP) *
+            sinRingRad;
+
+        const lon = needLonLat ? Math.atan2(pz, px) : 0;
+        const lat = needLonLat
+          ? Math.asin(Math.max(-1, Math.min(1, py)))
+          : 0;
+
+        ringPoints.push(
+          computeScreenPosition(
+            [px, py, pz],
+            lon,
+            lat,
+            baseRadius,
+            currentMorphProgress,
+            projectionMethod,
+            projectionScaleMultiplier,
+            rotationAngleX,
+            rotationAngleY,
+            transitionMode,
+          ),
+        );
+      }
+      allRings[k] = ringPoints;
     }
 
-    // 中心ファン (中心 -> 中間リング)
+    // 1段目: 中心ファン (中心 -> ring 1)
     p5Instance.beginShape(p5Instance.TRIANGLE_FAN);
     p5Instance.vertex(centerScreenPos.x, centerScreenPos.y);
+    const ring1 = allRings[1];
     for (let j = 0; j < circleVerticesCount; j++) {
-      p5Instance.vertex(midRingPoints[j].x, midRingPoints[j].y);
+      p5Instance.vertex(ring1[j].x, ring1[j].y);
     }
-    p5Instance.vertex(midRingPoints[0].x, midRingPoints[0].y);
+    p5Instance.vertex(ring1[0].x, ring1[0].y);
     p5Instance.endShape();
 
-    // 中間リング帯 (中間リング -> 外周リング)
-    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-    for (let j = 0; j <= circleVerticesCount; j++) {
-      const idx = j % circleVerticesCount;
-      p5Instance.vertex(midRingPoints[idx].x, midRingPoints[idx].y);
-      p5Instance.vertex(outerRingPoints[idx].x, outerRingPoints[idx].y);
+    // 2段目以降: TRIANGLE_STRIP (ring k -> ring k+1)
+    for (let k = 1; k < radialRings; k++) {
+      const innerRing = allRings[k];
+      const outerRing = allRings[k + 1];
+      p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
+      for (let j = 0; j <= circleVerticesCount; j++) {
+        const idx = j % circleVerticesCount;
+        p5Instance.vertex(innerRing[idx].x, innerRing[idx].y);
+        p5Instance.vertex(outerRing[idx].x, outerRing[idx].y);
+      }
+      p5Instance.endShape();
     }
-    p5Instance.endShape();
   }
 
   p5Instance.pop();
@@ -383,6 +407,7 @@ function renderPolarCapStripMesh(
   showStroke: boolean,
   fitSphericalSurface: boolean,
   transitionMode: MorphTransitionMode = "direct",
+  domeRings = 4,
 ): void {
   const count = arcPoints.length;
   if (count < 2) return;
@@ -391,101 +416,102 @@ function renderPolarCapStripMesh(
   p5Instance.noStroke();
 
   if (fitSphericalSurface) {
-    // 2段ストリップメッシュ: 極線 -> 中間緯度線 -> 外周円弧
-    // 1段目: 極線 -> 中間緯度線
-    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-    for (let k = 0; k < count; k++) {
-      const arcPt = arcPoints[k];
-      const curLon = arcPt.lon;
+    const radialRings = Math.max(1, domeRings);
+    // 多段ストリップメッシュ: 極線 (k=0) -> 各中間段 (k=1..R-1) -> 外周円弧 (k=R)
+    const stripLines: { x: number; y: number }[][] = new Array(
+      radialRings + 1,
+    );
 
-      const posPole = computeScreenPosition(
-        pole3D,
-        curLon,
-        poleLat,
-        baseRadius,
-        currentMorphProgress,
-        projectionMethod,
-        projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
-        transitionMode,
+    // k=0: 極線
+    const poleLine: { x: number; y: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const curLon = arcPoints[i].lon;
+      poleLine.push(
+        computeScreenPosition(
+          pole3D,
+          curLon,
+          poleLat,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotationAngleX,
+          rotationAngleY,
+          transitionMode,
+        ),
       );
-
-      // 球面上の幾何中点 (極点と外周円弧点の中間)
-      let midX = arcPt.point3D[0] + pole3D[0];
-      let midY = arcPt.point3D[1] + pole3D[1];
-      let midZ = arcPt.point3D[2] + pole3D[2];
-      const midLen = Math.hypot(midX, midY, midZ) || 1;
-      midX /= midLen;
-      midY /= midLen;
-      midZ /= midLen;
-      const midLat = Math.asin(Math.max(-1, Math.min(1, midY)));
-
-      const posMid = computeScreenPosition(
-        [midX, midY, midZ],
-        curLon,
-        midLat,
-        baseRadius,
-        currentMorphProgress,
-        projectionMethod,
-        projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
-        transitionMode,
-      );
-
-      p5Instance.vertex(posPole.x, posPole.y);
-      p5Instance.vertex(posMid.x, posMid.y);
     }
-    p5Instance.endShape();
+    stripLines[0] = poleLine;
 
-    // 2段目: 中間緯度線 -> 外周円弧
-    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-    for (let k = 0; k < count; k++) {
-      const arcPt = arcPoints[k];
-      const curLon = arcPt.lon;
-
-      let midX = arcPt.point3D[0] + pole3D[0];
-      let midY = arcPt.point3D[1] + pole3D[1];
-      let midZ = arcPt.point3D[2] + pole3D[2];
-      const midLen = Math.hypot(midX, midY, midZ) || 1;
-      midX /= midLen;
-      midY /= midLen;
-      midZ /= midLen;
-      const midLat = Math.asin(Math.max(-1, Math.min(1, midY)));
-
-      const posMid = computeScreenPosition(
-        [midX, midY, midZ],
-        curLon,
-        midLat,
-        baseRadius,
-        currentMorphProgress,
-        projectionMethod,
-        projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
-        transitionMode,
+    // k=radialRings: 外周円弧
+    const arcLine: { x: number; y: number }[] = [];
+    for (let i = 0; i < count; i++) {
+      const arcPt = arcPoints[i];
+      arcLine.push(
+        computeScreenPosition(
+          arcPt.point3D,
+          arcPt.lon,
+          arcPt.lat,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotationAngleX,
+          rotationAngleY,
+          transitionMode,
+        ),
       );
-
-      const posArc = computeScreenPosition(
-        arcPt.point3D,
-        curLon,
-        arcPt.lat,
-        baseRadius,
-        currentMorphProgress,
-        projectionMethod,
-        projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
-        transitionMode,
-      );
-
-      p5Instance.vertex(posMid.x, posMid.y);
-      p5Instance.vertex(posArc.x, posArc.y);
     }
-    p5Instance.endShape();
+    stripLines[radialRings] = arcLine;
+
+    // k=1..radialRings-1: 中間段
+    for (let k = 1; k < radialRings; k++) {
+      const t = k / radialRings;
+      const midLine: { x: number; y: number }[] = [];
+      for (let i = 0; i < count; i++) {
+        const arcPt = arcPoints[i];
+        const curLon = arcPt.lon;
+
+        let px = (1 - t) * pole3D[0] + t * arcPt.point3D[0];
+        let py = (1 - t) * pole3D[1] + t * arcPt.point3D[1];
+        let pz = (1 - t) * pole3D[2] + t * arcPt.point3D[2];
+        const pLen = Math.hypot(px, py, pz) || 1;
+        px /= pLen;
+        py /= pLen;
+        pz /= pLen;
+        const midLat = Math.asin(Math.max(-1, Math.min(1, py)));
+
+        midLine.push(
+          computeScreenPosition(
+            [px, py, pz],
+            curLon,
+            midLat,
+            baseRadius,
+            currentMorphProgress,
+            projectionMethod,
+            projectionScaleMultiplier,
+            rotationAngleX,
+            rotationAngleY,
+            transitionMode,
+          ),
+        );
+      }
+      stripLines[k] = midLine;
+    }
+
+    // 各段の TRIANGLE_STRIP
+    for (let k = 0; k < radialRings; k++) {
+      const lineInner = stripLines[k];
+      const lineOuter = stripLines[k + 1];
+      p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
+      for (let i = 0; i < count; i++) {
+        p5Instance.vertex(lineInner[i].x, lineInner[i].y);
+        p5Instance.vertex(lineOuter[i].x, lineOuter[i].y);
+      }
+      p5Instance.endShape();
+    }
   } else {
-    // 1段ストリップメッシュ: 極線 -> 外周円弧
+    // 1段ストリップメッシュ: 極線 -> 外周円弧 (平面直結)
     p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
     for (let k = 0; k < count; k++) {
       const arcPt = arcPoints[k];
@@ -592,6 +618,7 @@ export function renderPackedCirclesGeometry(
     strokeWeight,
     circleSegments = 64,
     fitSphericalSurface = true,
+    domeRings = 4,
     morphTransitionMode = "direct",
   } = options;
 
@@ -721,6 +748,7 @@ export function renderPackedCirclesGeometry(
           showStroke,
           circleVerticesCount,
           morphTransitionMode,
+          domeRings,
         );
       } else {
         const fillList = [...rawVertices];
@@ -822,6 +850,7 @@ export function renderPackedCirclesGeometry(
           showStroke,
           fitSphericalSurface,
           morphTransitionMode,
+          domeRings,
         );
         continue;
       }
@@ -855,6 +884,7 @@ export function renderPackedCirclesGeometry(
           showStroke,
           circleVerticesCount,
           morphTransitionMode,
+          domeRings,
         );
       } else {
         const fillList = [...rawVertices];

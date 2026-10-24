@@ -30,6 +30,7 @@ const initialParams: SketchParams = {
   strokeWeight: 1.5,
   circleSegments: 128,
   fitSphericalSurface: true,
+  domeRings: 4,
   showGrid: true,
   activePaletteIndex: defaultPaletteIndex,
   isExclusiveBackground: true,
@@ -61,6 +62,7 @@ export const randomTargetsAtom = atom<RandomTargets>({
   showStroke: true,
   strokeWeight: false,
   circleSegments: false,
+  domeRings: false,
   showGrid: false,
   isExclusiveBackground: true,
 });

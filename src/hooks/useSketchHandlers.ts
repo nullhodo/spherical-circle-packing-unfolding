@@ -350,6 +350,12 @@ export function useSketchHandlers() {
         segs[Math.floor(Math.random() * segs.length)];
     }
 
+    if (randomTargets.domeRings) {
+      const rings = [2, 4, 6, 8];
+      nextUpdates.domeRings =
+        rings[Math.floor(Math.random() * rings.length)];
+    }
+
     if (randomTargets.showStroke) {
       nextUpdates.showStroke = Math.random() > 0.5;
     }
