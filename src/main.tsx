@@ -435,6 +435,11 @@ const App: React.FC = () => {
             sphereRadius,
           );
         }
+
+        // Synchronous video frame capture (ensures silky-smooth 60fps with zero frame dropping)
+        if (recorderRef.current?.getIsRecording()) {
+          recorderRef.current.recordCurrentFrame();
+        }
       };
 
       p.mousePressed = () => {

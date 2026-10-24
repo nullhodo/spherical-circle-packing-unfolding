@@ -4,14 +4,11 @@ import { getFormattedDate } from "../utils/date";
 export class VideoRecorderManager {
   private isRecording = false;
   private canvasElement: HTMLCanvasElement | null = null;
-  private animationFrameId: number | null = null;
 
   // mp4-muxer / WebCodecs properties
   private muxer: Mp4Muxer.Muxer<Mp4Muxer.ArrayBufferTarget> | null = null;
   private videoEncoder: VideoEncoder | null = null;
   private recordingStartTimestamp = 0;
-  private lastCapturedTimestamp = 0;
-  private lastEncodedMicroseconds = -1;
   private frameCounter = 0;
 
   // Fallback MediaRecorder properties
@@ -81,6 +78,7 @@ export class VideoRecorderManager {
           height: roundedHeight,
           bitrate: 15_000_000,
           framerate: 60,
+          hardwareAcceleration: "prefer-hardware",
         };
 
         const support =
@@ -94,17 +92,15 @@ export class VideoRecorderManager {
             height: roundedHeight,
             bitrate: 15_000_000,
             framerate: 60,
+            hardwareAcceleration: "prefer-hardware",
           });
         }
 
         this.isRecording = true;
         this.recordingStartTimestamp = performance.now();
-        this.lastCapturedTimestamp = performance.now();
-        this.lastEncodedMicroseconds = -1;
         this.frameCounter = 0;
 
         this.startTimer();
-        this.captureFrameLoop();
         return true;
       } catch (err) {
         console.warn(
@@ -153,53 +149,43 @@ export class VideoRecorderManager {
     }
   }
 
-  private captureFrameLoop = () => {
-    if (!this.isRecording || !this.canvasElement || !this.videoEncoder)
+  public getIsRecording(): boolean {
+    return this.isRecording;
+  }
+
+  /**
+   * p5.js のレンダリングループ (p.draw) の直後に同期的に呼び出されるフレーム記録処理。
+   * 独立したタイマーや RAF の遅延・フレーム間引きを排除し、完全な固定 60fps タイムステップでエンコードする。
+   */
+  public recordCurrentFrame(): void {
+    if (!this.isRecording || !this.canvasElement || !this.videoEncoder) {
       return;
-
-    const now = performance.now();
-    const elapsedSinceLastFrame = now - this.lastCapturedTimestamp;
-    const targetInterval = 1000 / 60; // 16.666ms (60fps)
-
-    if (
-      this.frameCounter === 0 ||
-      elapsedSinceLastFrame >= targetInterval - 1
-    ) {
-      try {
-        let frameTimestampMicroseconds = 0;
-        if (this.frameCounter === 0) {
-          this.recordingStartTimestamp = now;
-          frameTimestampMicroseconds = 0;
-          this.lastEncodedMicroseconds = 0;
-        } else {
-          const rawMicroseconds = Math.round(
-            (now - this.recordingStartTimestamp) * 1000,
-          );
-          frameTimestampMicroseconds = Math.max(
-            rawMicroseconds,
-            this.lastEncodedMicroseconds + 1000,
-          );
-          this.lastEncodedMicroseconds = frameTimestampMicroseconds;
-        }
-        this.lastCapturedTimestamp = now;
-
-        const keyFrame = this.frameCounter % 60 === 0;
-
-        const videoFrame = new VideoFrame(this.canvasElement, {
-          timestamp: frameTimestampMicroseconds,
-        });
-
-        this.videoEncoder.encode(videoFrame, { keyFrame });
-        videoFrame.close();
-
-        this.frameCounter++;
-      } catch (e) {
-        console.error("[mp4-muxer] Error encoding frame:", e);
-      }
     }
 
-    this.animationFrameId = requestAnimationFrame(this.captureFrameLoop);
-  };
+    // エンコードキュー滞留ガード (メインスレッドの詰まり防止)
+    if (this.videoEncoder.encodeQueueSize > 12) {
+      return;
+    }
+
+    try {
+      // 完全な固定 60fps (16666.666μs 刻み) の決定論的タイムスタンプ
+      const frameTimestampMicroseconds = Math.round(
+        (this.frameCounter * 1_000_000) / 60,
+      );
+      const keyFrame = this.frameCounter % 60 === 0;
+
+      const videoFrame = new VideoFrame(this.canvasElement, {
+        timestamp: frameTimestampMicroseconds,
+      });
+
+      this.videoEncoder.encode(videoFrame, { keyFrame });
+      videoFrame.close();
+
+      this.frameCounter++;
+    } catch (e) {
+      console.error("[mp4-muxer] Error encoding frame:", e);
+    }
+  }
 
   public async stopRecording(
     customFilename?: string,
@@ -208,11 +194,6 @@ export class VideoRecorderManager {
 
     this.isRecording = false;
     this.stopTimer();
-
-    if (this.animationFrameId !== null) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = null;
-    }
 
     if (this.videoEncoder && this.muxer) {
       try {
