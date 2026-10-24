@@ -117,20 +117,20 @@ export const PackingSection: React.FC<Props> = ({
         <div className="flex items-center justify-between text-slate-300 mb-1.5 font-medium">
           <span>最小角半径 (Min Radius)</span>
           <span className="font-mono text-slate-400">
-            {params.minRadius.toFixed(2)} rad
+            {params.minRadius.toFixed(3)} rad
           </span>
         </div>
         <input
           type="range"
-          min="0.02"
+          min="0.001"
           max="0.15"
-          step="0.01"
+          step="0.001"
           value={params.minRadius}
           onChange={(e) => {
             const val = Number.parseFloat(e.target.value);
             onParamChange("minRadius", val);
             if (val > params.maxRadius) {
-              onParamChange("maxRadius", val + 0.02);
+              onParamChange("maxRadius", val + 0.01);
             }
           }}
           className="w-full accent-sky-400 cursor-pointer"
@@ -155,7 +155,7 @@ export const PackingSection: React.FC<Props> = ({
             const val = Number.parseFloat(e.target.value);
             onParamChange("maxRadius", val);
             if (val < params.minRadius) {
-              onParamChange("minRadius", Math.max(0.02, val - 0.02));
+              onParamChange("minRadius", Math.max(0.001, val - 0.01));
             }
           }}
           className="w-full accent-sky-400 cursor-pointer"
@@ -173,7 +173,7 @@ export const PackingSection: React.FC<Props> = ({
         <input
           type="range"
           min="16"
-          max="128"
+          max="256"
           step="4"
           value={params.circleSegments}
           onChange={(e) =>
@@ -187,7 +187,8 @@ export const PackingSection: React.FC<Props> = ({
         <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
           <span>軽量 (16)</span>
           <span>標準 (64)</span>
-          <span>超高精細 (128)</span>
+          <span>高精細 (128)</span>
+          <span>極限 (256)</span>
         </div>
       </div>
 

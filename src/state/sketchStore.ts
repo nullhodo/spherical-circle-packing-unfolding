@@ -27,7 +27,7 @@ const initialParams: SketchParams = {
   maxRadius: 0.5,
   showStroke: false,
   strokeWeight: 1.5,
-  circleSegments: 64,
+  circleSegments: 128,
   fitSphericalSurface: true,
   showGrid: true,
   activePaletteIndex: defaultPaletteIndex,
