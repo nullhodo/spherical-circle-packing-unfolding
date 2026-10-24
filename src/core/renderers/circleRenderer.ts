@@ -364,6 +364,190 @@ function renderCirclePiece(
 }
 
 /**
+ * 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）を、
+ * 経線に沿った TRIANGLE_STRIP メッシュで歪みなく描画する関数
+ * 球面フィット時は極点〜中間緯度〜外周円弧の2段ストリップにより曲面に密着し、
+ * 平面展開時もメルカトル極線から外周円弧へ美しい帯状に展開する
+ */
+function renderPolarCapStripMesh(
+  p5Instance: p5,
+  arcPoints: SphericalPoint[],
+  pole3D: [number, number, number],
+  poleLat: number,
+  baseRadius: number,
+  currentMorphProgress: number,
+  projectionMethod: ProjectionMethod,
+  projectionScaleMultiplier: number,
+  rotationAngleX: number,
+  rotationAngleY: number,
+  showStroke: boolean,
+  fitSphericalSurface: boolean,
+  transitionMode: MorphTransitionMode = "direct",
+): void {
+  const count = arcPoints.length;
+  if (count < 2) return;
+
+  p5Instance.push();
+  p5Instance.noStroke();
+
+  if (fitSphericalSurface) {
+    // 2段ストリップメッシュ: 極線 -> 中間緯度線 -> 外周円弧
+    // 1段目: 極線 -> 中間緯度線
+    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
+    for (let k = 0; k < count; k++) {
+      const arcPt = arcPoints[k];
+      const curLon = arcPt.lon;
+
+      const posPole = computeScreenPosition(
+        pole3D,
+        curLon,
+        poleLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+
+      // 球面上の幾何中点 (極点と外周円弧点の中間)
+      let midX = arcPt.point3D[0] + pole3D[0];
+      let midY = arcPt.point3D[1] + pole3D[1];
+      let midZ = arcPt.point3D[2] + pole3D[2];
+      const midLen = Math.hypot(midX, midY, midZ) || 1;
+      midX /= midLen;
+      midY /= midLen;
+      midZ /= midLen;
+      const midLat = Math.asin(Math.max(-1, Math.min(1, midY)));
+
+      const posMid = computeScreenPosition(
+        [midX, midY, midZ],
+        curLon,
+        midLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+
+      p5Instance.vertex(posPole.x, posPole.y);
+      p5Instance.vertex(posMid.x, posMid.y);
+    }
+    p5Instance.endShape();
+
+    // 2段目: 中間緯度線 -> 外周円弧
+    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
+    for (let k = 0; k < count; k++) {
+      const arcPt = arcPoints[k];
+      const curLon = arcPt.lon;
+
+      let midX = arcPt.point3D[0] + pole3D[0];
+      let midY = arcPt.point3D[1] + pole3D[1];
+      let midZ = arcPt.point3D[2] + pole3D[2];
+      const midLen = Math.hypot(midX, midY, midZ) || 1;
+      midX /= midLen;
+      midY /= midLen;
+      midZ /= midLen;
+      const midLat = Math.asin(Math.max(-1, Math.min(1, midY)));
+
+      const posMid = computeScreenPosition(
+        [midX, midY, midZ],
+        curLon,
+        midLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+
+      const posArc = computeScreenPosition(
+        arcPt.point3D,
+        curLon,
+        arcPt.lat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+
+      p5Instance.vertex(posMid.x, posMid.y);
+      p5Instance.vertex(posArc.x, posArc.y);
+    }
+    p5Instance.endShape();
+  } else {
+    // 1段ストリップメッシュ: 極線 -> 外周円弧
+    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
+    for (let k = 0; k < count; k++) {
+      const arcPt = arcPoints[k];
+      const curLon = arcPt.lon;
+
+      const posPole = computeScreenPosition(
+        pole3D,
+        curLon,
+        poleLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+      const posArc = computeScreenPosition(
+        arcPt.point3D,
+        curLon,
+        arcPt.lat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+
+      p5Instance.vertex(posPole.x, posPole.y);
+      p5Instance.vertex(posArc.x, posArc.y);
+    }
+    p5Instance.endShape();
+  }
+
+  p5Instance.pop();
+
+  // 輪郭線ストローク (外周円弧部分のみに描画し、極線境界にはストロークを引かない)
+  if (showStroke && arcPoints.length >= 2) {
+    p5Instance.beginShape();
+    for (let k = 0; k < arcPoints.length; k++) {
+      const arcPt = arcPoints[k];
+      const posArc = computeScreenPosition(
+        arcPt.point3D,
+        arcPt.lon,
+        arcPt.lat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode,
+      );
+      p5Instance.vertex(posArc.x, posArc.y);
+    }
+    p5Instance.endShape();
+  }
+}
+
+/**
  * シーム線 (lon = ±PI, すなわち x < 0, z = 0) との交点Iを計算するヘルパー
  */
 function computeIntersection(
@@ -520,6 +704,45 @@ export function renderPackedCirclesGeometry(
       });
     }
 
+    // 3D球面自転時 (モーフィング <= 1e-4) は、シーム横断や極キャップの分割を行わず、
+    // 全ての円（北極・南極を跨ぐ円、シームを跨ぐ円を含む）を完全な球面ドームメッシュで描画する
+    if (currentMorphProgress <= 1e-4) {
+      if (fitSphericalSurface) {
+        renderSphericalFittedCircle(
+          p5Instance,
+          circleData,
+          rawVertices,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotationAngleX,
+          rotationAngleY,
+          showStroke,
+          circleVerticesCount,
+          morphTransitionMode,
+        );
+      } else {
+        const fillList = [...rawVertices];
+        const arcList = [...rawVertices, rawVertices[0]];
+        renderCirclePiece(
+          p5Instance,
+          fillList,
+          arcList,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotationAngleX,
+          rotationAngleY,
+          showStroke,
+          false,
+          morphTransitionMode,
+        );
+      }
+      continue;
+    }
+
     // 1. 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）の検出
     const normalY = circleData.normalVector[1];
     const encompassesNorthPole = normalY >= cosRadius - 1e-5;
@@ -584,29 +807,12 @@ export function renderPackedCirclesGeometry(
 
         const arcPoints = [interWest, ...orderedInterior, interEast];
 
-        // 極線の生成: 東端 (lon = +PI) から 西端 (lon = -PI) へ戻るパス
-        const poleSteps = Math.max(
-          16,
-          Math.floor(circleVerticesCount / 2),
-        );
-        const poleLine: SphericalPoint[] = [];
-        for (let s = 0; s <= poleSteps; s++) {
-          const t = s / poleSteps;
-          const lon = Math.PI - t * (Math.PI * 2);
-          poleLine.push({
-            point3D: pole3D,
-            lon,
-            lat: poleLat,
-          });
-        }
-
-        // 塗りつぶしポリゴン: 円周弧(西->東) + 極線(東->西)
-        const fillPolygon = [...arcPoints, ...poleLine];
-
-        renderCirclePiece(
+        // 経線に沿った TRIANGLE_STRIP による極キャップメッシュ描画
+        renderPolarCapStripMesh(
           p5Instance,
-          fillPolygon,
           arcPoints,
+          pole3D,
+          poleLat,
           baseRadius,
           currentMorphProgress,
           projectionMethod,
