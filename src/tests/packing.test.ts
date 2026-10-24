@@ -13,74 +13,6 @@ const mockPalette: Palette = {
 };
 
 describe("computeSphericalCirclePacking", () => {
-  it("generates circles using dense relaxation algorithm", () => {
-    const circles = computeSphericalCirclePacking({
-      maxCircles: 50,
-      minRadius: 0.05,
-      maxRadius: 0.3,
-      palette: mockPalette,
-      isExclusiveBackground: false,
-      algorithm: "relaxation",
-    });
-
-    expect(circles.length).toBeGreaterThan(15);
-    for (const c of circles) {
-      expect(c.angularRadius).toBeGreaterThanOrEqual(0.045);
-      expect(c.angularRadius).toBeLessThanOrEqual(0.35);
-
-      // 法線ベクトルのノルムが 1 (球面上) であることを確認
-      const [x, y, z] = c.normalVector;
-      const len = Math.sqrt(x * x + y * y + z * z);
-      expect(len).toBeCloseTo(1.0, 4);
-    }
-  });
-
-  it("strictly guarantees zero overlap among all circle pairs (especially small circles)", () => {
-    const circles = computeSphericalCirclePacking({
-      maxCircles: 120,
-      minRadius: 0.02,
-      maxRadius: 0.4,
-      palette: mockPalette,
-      isExclusiveBackground: false,
-      algorithm: "relaxation",
-    });
-
-    expect(circles.length).toBeGreaterThan(30);
-
-    // 全ペアで角距離 >= 半径和 (重なりゼロ) であることを検証
-    for (let i = 0; i < circles.length; i++) {
-      for (let j = i + 1; j < circles.length; j++) {
-        const cA = circles[i];
-        const cB = circles[j];
-        const dot =
-          cA.normalVector[0] * cB.normalVector[0] +
-          cA.normalVector[1] * cB.normalVector[1] +
-          cA.normalVector[2] * cB.normalVector[2];
-        const angularDist = Math.acos(Math.max(-1, Math.min(1, dot)));
-        const requiredDist = cA.angularRadius + cB.angularRadius;
-
-        expect(angularDist + 1e-4).toBeGreaterThanOrEqual(requiredDist);
-      }
-    }
-  });
-
-  it("generates circles using hierarchical Apollonian algorithm", () => {
-    const circles = computeSphericalCirclePacking({
-      maxCircles: 50,
-      minRadius: 0.04,
-      maxRadius: 0.25,
-      palette: mockPalette,
-      isExclusiveBackground: false,
-      algorithm: "hierarchical",
-    });
-
-    expect(circles.length).toBeGreaterThan(15);
-    for (const c of circles) {
-      expect(c.angularRadius).toBeGreaterThanOrEqual(0.035);
-      expect(c.angularRadius).toBeLessThanOrEqual(0.26);
-    }
-  });
-
   it("generates circles using fast random algorithm", () => {
     const circles = computeSphericalCirclePacking({
       maxCircles: 40,
@@ -101,7 +33,7 @@ describe("computeSphericalCirclePacking", () => {
       maxRadius: 0.2,
       palette: mockPalette,
       isExclusiveBackground: true,
-      algorithm: "relaxation",
+      algorithm: "maximal",
     });
 
     for (const c of circles) {

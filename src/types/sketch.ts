@@ -32,12 +32,7 @@ export type ProjectionMethod =
   | "orthographic2d"
   | "mollweide";
 
-export type PackingAlgorithm =
-  | "maximal"
-  | "powerlaw"
-  | "relaxation"
-  | "hierarchical"
-  | "random";
+export type PackingAlgorithm = "maximal" | "powerlaw" | "random";
 export type GridLayerMode = "underlay" | "overlay";
 
 export interface SketchParams {
