@@ -122,6 +122,8 @@ const App: React.FC = () => {
     handleApplyPalette,
     handlePickRandomPalette,
     handleGenerateGradientTheme,
+    handleRandomizeBackgroundColor,
+    handleSetBackgroundColor,
     randomizeSelectedParameters,
     handleUndo,
     handleRedo,
@@ -482,6 +484,8 @@ const App: React.FC = () => {
         onApplyPalette={handleApplyPalette}
         onPickRandomPalette={handlePickRandomPalette}
         onGenerateGradientTheme={handleGenerateGradientTheme}
+        onRandomizeBackgroundColor={handleRandomizeBackgroundColor}
+        onSetBackgroundColor={handleSetBackgroundColor}
         onRandomizeAll={randomizeSelectedParameters}
         onStartNLoopRecord={handleStartNLoopRecord}
         onExportHighRes={handleExportHighRes}

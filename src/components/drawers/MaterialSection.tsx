@@ -2,6 +2,7 @@ import { useAtom } from "jotai";
 import {
   Dices,
   Palette as PaletteIcon,
+  Shuffle,
   Sparkles,
   Wand2,
 } from "lucide-react";
@@ -23,6 +24,8 @@ interface Props {
   onApplyPalette: (index: number) => void;
   onPickRandomPalette: () => void;
   onGenerateGradientTheme: (baseHex: string) => void;
+  onRandomizeBackgroundColor: () => void;
+  onSetBackgroundColor: (index: number) => void;
 }
 
 export const MaterialSection: React.FC<Props> = ({
@@ -30,6 +33,8 @@ export const MaterialSection: React.FC<Props> = ({
   onApplyPalette,
   onPickRandomPalette,
   onGenerateGradientTheme,
+  onRandomizeBackgroundColor,
+  onSetBackgroundColor,
 }) => {
   const [params] = useAtom(sketchParamsAtom);
   const [activePalette] = useAtom(activePaletteAtom);
@@ -74,18 +79,48 @@ export const MaterialSection: React.FC<Props> = ({
         )}
       </div>
 
-      {/* カラープレビュースウォッチ */}
-      <div>
-        <div className="flex items-center gap-1.5 h-7 p-1 rounded-lg bg-slate-900/60 border border-slate-800">
+      {/* カラープレビュースウォッチ & 背景色ランダム設定 */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-[11px] text-slate-400">
+          <span>パレットカラー (先頭色が背景)</span>
+          <span className="text-[10px] text-slate-500">
+            クリックで背景に設定
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 h-8 p-1 rounded-lg bg-slate-900/60 border border-slate-800">
           {activePalette.colors.map((c, i) => (
-            <div
+            <button
+              type="button"
               key={`${c.hex}-${i}`}
-              className="flex-1 h-full rounded shadow-inner cursor-pointer hover:scale-105 transition-transform"
+              onClick={() => onSetBackgroundColor(i)}
+              className={`relative flex-1 h-full rounded shadow-inner transition-all hover:scale-105 ${
+                i === 0 && params.isExclusiveBackground
+                  ? "ring-2 ring-white/90 ring-offset-1 ring-offset-slate-900 z-10"
+                  : "opacity-85 hover:opacity-100"
+              }`}
               style={{ backgroundColor: c.hex }}
-              title={`${c.name || "Color"} (${c.hex})`}
-            />
+              title={`${c.name || "Color"} (${c.hex})${
+                i === 0 ? " [現在背景]" : " - クリックで背景色に設定"
+              }`}
+            >
+              {i === 0 && params.isExclusiveBackground && (
+                <span className="absolute -top-1.5 -right-1 bg-white text-slate-900 text-[8px] font-bold px-1 rounded-full shadow leading-tight">
+                  BG
+                </span>
+              )}
+            </button>
           ))}
         </div>
+
+        {/* 背景色ランダム再設定ボタン */}
+        <button
+          type="button"
+          onClick={onRandomizeBackgroundColor}
+          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-medium transition-all shadow-sm active:scale-[0.98]"
+        >
+          <Shuffle className="w-3.5 h-3.5 text-pink-400" />
+          <span>背景をパレットからランダムに再設定</span>
+        </button>
       </div>
 
       {/* 背景色排他トグル */}
@@ -98,7 +133,7 @@ export const MaterialSection: React.FC<Props> = ({
           }
           className="rounded bg-slate-800 border-slate-700 text-pink-500 focus:ring-0 w-3.5 h-3.5"
         />
-        <span>背景にパレット第1色を適用 (排他使用)</span>
+        <span>背景にパレット色を適用 (排他使用)</span>
       </label>
 
       {/* カスタムグラデーション生成器 */}

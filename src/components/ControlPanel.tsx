@@ -33,6 +33,8 @@ interface Props {
   onApplyPalette: (index: number) => void;
   onPickRandomPalette: () => void;
   onGenerateGradientTheme: (baseHex: string) => void;
+  onRandomizeBackgroundColor: () => void;
+  onSetBackgroundColor: (index: number) => void;
   onRandomizeAll: () => void;
   onStartNLoopRecord: () => void;
   onExportHighRes: () => void;
@@ -215,6 +217,10 @@ export const ControlPanel: React.FC<Props> = (props) => {
                       onGenerateGradientTheme={
                         props.onGenerateGradientTheme
                       }
+                      onRandomizeBackgroundColor={
+                        props.onRandomizeBackgroundColor
+                      }
+                      onSetBackgroundColor={props.onSetBackgroundColor}
                     />
                   </div>
                 )}

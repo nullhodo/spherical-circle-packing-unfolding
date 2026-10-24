@@ -116,6 +116,112 @@ export function useSketchHandlers() {
     handleApplyPalette(randomIndex);
   }, [handleApplyPalette]);
 
+  /**
+   * 現在のパレット内の色からランダムに1色を背景色として再設定
+   * 円のパッキング幾何配置はそのまま保持し、色のみを瞬時に再割り当てする
+   */
+  const handleRandomizeBackgroundColor = useCallback(() => {
+    recordHistory();
+    const currentPal = activePaletteRef.current;
+    if (!currentPal || currentPal.colors.length <= 1) return;
+
+    const colors = [...currentPal.colors];
+    // 現在の背景色 (インデックス 0) 以外のインデックスからランダムに選ぶ
+    const pickIdx = 1 + Math.floor(Math.random() * (colors.length - 1));
+    const [chosen] = colors.splice(pickIdx, 1);
+    colors.unshift(chosen);
+
+    const updatedPalette: Palette = {
+      ...currentPal,
+      colors,
+    };
+
+    setActivePalette(updatedPalette);
+    if (!paramsRef.current.isExclusiveBackground) {
+      setParams((prev) => ({ ...prev, isExclusiveBackground: true }));
+    }
+
+    const usableColors = colors.slice(1);
+    setCircles((prevCircles) =>
+      prevCircles.map((circle) => {
+        const primaryChoice =
+          usableColors[Math.floor(Math.random() * usableColors.length)] ||
+          colors[0];
+        const secondaryChoice =
+          usableColors[Math.floor(Math.random() * usableColors.length)] ||
+          primaryChoice;
+        return {
+          ...circle,
+          primaryColor: primaryChoice.rgb,
+          secondaryColor: secondaryChoice.rgb,
+          primaryHex: primaryChoice.hex,
+        };
+      }),
+    );
+
+    showToast(
+      `背景色をパレットから再設定: ${chosen.name || chosen.hex}`,
+      "info",
+    );
+  }, [recordHistory, setActivePalette, setParams, setCircles, showToast]);
+
+  /**
+   * パレット内の特定インデックスの色を背景色として設定
+   */
+  const handleSetBackgroundColor = useCallback(
+    (colorIndex: number) => {
+      recordHistory();
+      const currentPal = activePaletteRef.current;
+      if (
+        !currentPal ||
+        colorIndex < 0 ||
+        colorIndex >= currentPal.colors.length
+      ) {
+        return;
+      }
+
+      const colors = [...currentPal.colors];
+      const [chosen] = colors.splice(colorIndex, 1);
+      colors.unshift(chosen);
+
+      const updatedPalette: Palette = {
+        ...currentPal,
+        colors,
+      };
+
+      setActivePalette(updatedPalette);
+      if (!paramsRef.current.isExclusiveBackground) {
+        setParams((prev) => ({ ...prev, isExclusiveBackground: true }));
+      }
+
+      const usableColors = colors.length > 1 ? colors.slice(1) : colors;
+      setCircles((prevCircles) =>
+        prevCircles.map((circle) => {
+          const primaryChoice =
+            usableColors[
+              Math.floor(Math.random() * usableColors.length)
+            ] || colors[0];
+          const secondaryChoice =
+            usableColors[
+              Math.floor(Math.random() * usableColors.length)
+            ] || primaryChoice;
+          return {
+            ...circle,
+            primaryColor: primaryChoice.rgb,
+            secondaryColor: secondaryChoice.rgb,
+            primaryHex: primaryChoice.hex,
+          };
+        }),
+      );
+
+      showToast(
+        `背景色をパレットから設定: ${chosen.name || chosen.hex}`,
+        "info",
+      );
+    },
+    [recordHistory, setActivePalette, setParams, setCircles, showToast],
+  );
+
   const handleGenerateGradientTheme = useCallback(
     (baseHexColor: string) => {
       recordHistory();
@@ -260,6 +366,8 @@ export function useSketchHandlers() {
     recomputePacking,
     handleApplyPalette,
     handlePickRandomPalette,
+    handleRandomizeBackgroundColor,
+    handleSetBackgroundColor,
     handleGenerateGradientTheme,
     randomizeSelectedParameters,
     handleUndo,
