@@ -156,58 +156,29 @@ export function useSketchHandlers() {
   );
 
   const handlePickRandomPalette = useCallback(() => {
-    const randomIndex = Math.floor(Math.random() * colourPalettes.length);
+    const currentIdx = paramsRef.current.activePaletteIndex;
+    const currentTitle = activePaletteRef.current?.title;
+
+    // 現在選択中のパレット（インデックスおよびタイトル）と異なるパレットを候補にする
+    const availableIndices = colourPalettes
+      .map((pal, i) => ({ pal, i }))
+      .filter(
+        ({ pal, i }) => i !== currentIdx && pal.title !== currentTitle,
+      )
+      .map(({ i }) => i);
+
+    const targetPool =
+      availableIndices.length > 0
+        ? availableIndices
+        : colourPalettes.map((_, i) => i).filter((i) => i !== currentIdx);
+
+    const randomIndex =
+      targetPool.length > 0
+        ? targetPool[Math.floor(Math.random() * targetPool.length)]
+        : 0;
+
     handleApplyPalette(randomIndex);
   }, [handleApplyPalette]);
-
-  /**
-   * 現在のパレット内の色からランダムに1色を背景色として再設定
-   * 円のパッキング幾何配置はそのまま保持し、色のみを瞬時に再割り当てする
-   */
-  const handleRandomizeBackgroundColor = useCallback(() => {
-    recordHistory();
-    const currentPal = activePaletteRef.current;
-    if (!currentPal || currentPal.colors.length <= 1) return;
-
-    const colors = [...currentPal.colors];
-    // 現在の背景色 (インデックス 0) 以外のインデックスからランダムに選ぶ
-    const pickIdx = 1 + Math.floor(Math.random() * (colors.length - 1));
-    const [chosen] = colors.splice(pickIdx, 1);
-    colors.unshift(chosen);
-
-    const updatedPalette: Palette = {
-      ...currentPal,
-      colors,
-    };
-
-    setActivePalette(updatedPalette);
-    if (!paramsRef.current.isExclusiveBackground) {
-      setParams((prev) => ({ ...prev, isExclusiveBackground: true }));
-    }
-
-    const usableColors = colors.slice(1);
-    setCircles((prevCircles) =>
-      prevCircles.map((circle) => {
-        const primaryChoice =
-          usableColors[Math.floor(Math.random() * usableColors.length)] ||
-          colors[0];
-        const secondaryChoice =
-          usableColors[Math.floor(Math.random() * usableColors.length)] ||
-          primaryChoice;
-        return {
-          ...circle,
-          primaryColor: primaryChoice.rgb,
-          secondaryColor: secondaryChoice.rgb,
-          primaryHex: primaryChoice.hex,
-        };
-      }),
-    );
-
-    showToast(
-      `背景色をパレットから再設定: ${chosen.name || chosen.hex}`,
-      "info",
-    );
-  }, [recordHistory, setActivePalette, setParams, setCircles, showToast]);
 
   /**
    * パレット内の特定の色を背景色として設定
@@ -297,6 +268,42 @@ export function useSketchHandlers() {
     [recordHistory, setActivePalette, setParams, setCircles, showToast],
   );
 
+  /**
+   * 現在のパレット内の色から、現在の背景色とは異なる色を1色選んで背景色として再設定
+   * 円のパッキング幾何配置は保持し、新背景色と同色の円のみ元の背景色とスワップする
+   */
+  const handleRandomizeBackgroundColor = useCallback(() => {
+    const currentPal = activePaletteRef.current;
+    if (!currentPal || currentPal.colors.length <= 1) return;
+
+    // 現在の背景色HEX
+    const currentBgHex = (
+      paramsRef.current.isExclusiveBackground &&
+      currentPal.colors.length > 0
+        ? currentPal.colors[0].hex
+        : ""
+    ).toLowerCase();
+
+    // 現在の背景色HEXと異なる色を候補インデックスとして収集
+    const candidateIndices: number[] = [];
+    currentPal.colors.forEach((c, idx) => {
+      if (paramsRef.current.isExclusiveBackground && idx === 0) return;
+      if (c.hex.toLowerCase() !== currentBgHex) {
+        candidateIndices.push(idx);
+      }
+    });
+
+    // 候補があればその中からランダム選択、なければ先頭以外から選択
+    const chosenIndex =
+      candidateIndices.length > 0
+        ? candidateIndices[
+            Math.floor(Math.random() * candidateIndices.length)
+          ]
+        : 1;
+
+    handleSetBackgroundColor(chosenIndex);
+  }, [handleSetBackgroundColor]);
+
   const handleGenerateGradientTheme = useCallback(
     (baseHexColor: string) => {
       recordHistory();
@@ -311,14 +318,44 @@ export function useSketchHandlers() {
   const handleShufflePaletteColors = useCallback(() => {
     recordHistory();
     const currentPal = activePaletteRef.current;
-    if (!currentPal || currentPal.colors.length <= 1) return;
+    if (!currentPal || currentPal.colors.length <= 2) {
+      showToast("シャッフルするには3色以上必要です", "info");
+      return;
+    }
 
     const colors = [...currentPal.colors];
     const nonBg = colors.slice(1);
-    for (let i = nonBg.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+    const originalOrderHexes = nonBg
+      .map((c) => c.hex.toLowerCase())
+      .join(",");
+
+    // 元の並び順と異なる並びになるまでシャッフル（最大10回）
+    let attempts = 0;
+    while (attempts < 10) {
+      for (let i = nonBg.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+      }
+      if (
+        nonBg.map((c) => c.hex.toLowerCase()).join(",") !==
+        originalOrderHexes
+      ) {
+        break;
+      }
+      attempts++;
     }
+
+    // 万が一同じ並びのままなら、先頭と末尾を強制スワップ
+    if (
+      nonBg.length > 1 &&
+      nonBg.map((c) => c.hex.toLowerCase()).join(",") ===
+        originalOrderHexes
+    ) {
+      const temp = nonBg[0];
+      nonBg[0] = nonBg[nonBg.length - 1];
+      nonBg[nonBg.length - 1] = temp;
+    }
+
     const updatedPalette: Palette = {
       ...currentPal,
       colors: [colors[0], ...nonBg],
@@ -334,7 +371,27 @@ export function useSketchHandlers() {
     let nextPalette = activePaletteRef.current;
 
     if (randomTargets.palette) {
-      const randIdx = Math.floor(Math.random() * colourPalettes.length);
+      const currentIdx = paramsRef.current.activePaletteIndex;
+      const currentTitle = activePaletteRef.current?.title;
+      const availableIndices = colourPalettes
+        .map((pal, i) => ({ pal, i }))
+        .filter(
+          ({ pal, i }) => i !== currentIdx && pal.title !== currentTitle,
+        )
+        .map(({ i }) => i);
+
+      const targetPool =
+        availableIndices.length > 0
+          ? availableIndices
+          : colourPalettes
+              .map((_, i) => i)
+              .filter((i) => i !== currentIdx);
+
+      const randIdx =
+        targetPool.length > 0
+          ? targetPool[Math.floor(Math.random() * targetPool.length)]
+          : Math.floor(Math.random() * colourPalettes.length);
+
       nextPalette = colourPalettes[randIdx];
       setActivePalette(nextPalette);
       nextUpdates.activePaletteIndex = randIdx;
@@ -347,10 +404,35 @@ export function useSketchHandlers() {
     ) {
       const colors = [...nextPalette.colors];
       const nonBg = colors.slice(1);
-      for (let i = nonBg.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+      const originalOrderHexes = nonBg
+        .map((c) => c.hex.toLowerCase())
+        .join(",");
+
+      let attempts = 0;
+      while (attempts < 10) {
+        for (let i = nonBg.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [nonBg[i], nonBg[j]] = [nonBg[j], nonBg[i]];
+        }
+        if (
+          nonBg.map((c) => c.hex.toLowerCase()).join(",") !==
+          originalOrderHexes
+        ) {
+          break;
+        }
+        attempts++;
       }
+
+      if (
+        nonBg.length > 1 &&
+        nonBg.map((c) => c.hex.toLowerCase()).join(",") ===
+          originalOrderHexes
+      ) {
+        const temp = nonBg[0];
+        nonBg[0] = nonBg[nonBg.length - 1];
+        nonBg[nonBg.length - 1] = temp;
+      }
+
       nextPalette = { ...nextPalette, colors: [colors[0], ...nonBg] };
       setActivePalette(nextPalette);
     }
@@ -442,8 +524,30 @@ export function useSketchHandlers() {
       nextPalette &&
       nextPalette.colors.length > 1
     ) {
+      const currentBgHex = (
+        paramsRef.current.isExclusiveBackground &&
+        activePaletteRef.current?.colors[0]?.hex
+          ? activePaletteRef.current.colors[0].hex
+          : ""
+      ).toLowerCase();
+
       const colors = [...nextPalette.colors];
-      const pickIdx = Math.floor(Math.random() * colors.length);
+      const candidateIndices: number[] = [];
+      colors.forEach((c, idx) => {
+        // パレットが変わっていない場合は先頭（元の背景色）は除外
+        if (!randomTargets.palette && idx === 0) return;
+        if (c.hex.toLowerCase() !== currentBgHex) {
+          candidateIndices.push(idx);
+        }
+      });
+
+      const pickIdx =
+        candidateIndices.length > 0
+          ? candidateIndices[
+              Math.floor(Math.random() * candidateIndices.length)
+            ]
+          : 1;
+
       const [chosen] = colors.splice(pickIdx, 1);
       colors.unshift(chosen);
       nextPalette = { ...nextPalette, colors };
