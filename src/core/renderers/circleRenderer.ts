@@ -124,16 +124,16 @@ function renderSphericalFittedCircle(
     );
   }
 
-  ctx.beginPath();
-
   if (radialRings === 1) {
     // 1段: 中心ファンのみ
     for (let j = 0; j < count; j++) {
       const next = (j + 1) % count;
+      ctx.beginPath();
       ctx.moveTo(centerScreenPos.x, centerScreenPos.y);
       ctx.lineTo(outerRingPoints[j].x, outerRingPoints[j].y);
       ctx.lineTo(outerRingPoints[next].x, outerRingPoints[next].y);
       ctx.closePath();
+      ctx.fill();
     }
   } else {
     // 多段メッシュ: 中間リングの投影
@@ -166,29 +166,38 @@ function renderSphericalFittedCircle(
     const ring1 = allRings[1];
     for (let j = 0; j < count; j++) {
       const next = (j + 1) % count;
+      ctx.beginPath();
       ctx.moveTo(centerScreenPos.x, centerScreenPos.y);
       ctx.lineTo(ring1[j].x, ring1[j].y);
       ctx.lineTo(ring1[next].x, ring1[next].y);
       ctx.closePath();
+      ctx.fill();
     }
 
-    // 2段目以降: ストリップクアッド (ring k -> ring k+1)
+    // 2段目以降: TRIANGLE_STRIP (ring k -> ring k+1)
     for (let k = 1; k < radialRings; k++) {
       const innerRing = allRings[k];
       const outerRing = allRings[k + 1];
       for (let j = 0; j < count; j++) {
         const next = (j + 1) % count;
+        // 三角形 1: inner[j] -> outer[j] -> inner[next]
+        ctx.beginPath();
         ctx.moveTo(innerRing[j].x, innerRing[j].y);
         ctx.lineTo(outerRing[j].x, outerRing[j].y);
+        ctx.lineTo(innerRing[next].x, innerRing[next].y);
+        ctx.closePath();
+        ctx.fill();
+
+        // 三角形 2: outer[j] -> outer[next] -> inner[next]
+        ctx.beginPath();
+        ctx.moveTo(outerRing[j].x, outerRing[j].y);
         ctx.lineTo(outerRing[next].x, outerRing[next].y);
         ctx.lineTo(innerRing[next].x, innerRing[next].y);
         ctx.closePath();
+        ctx.fill();
       }
     }
   }
-
-  // 一括 fill
-  ctx.fill();
 
   // 輪郭線ストローク (外周のみに適用)
   if (showStroke && outerRingPoints.length >= 2) {
@@ -272,13 +281,16 @@ function renderCirclePiece(
     // TRIANGLE_FAN による球面ドーム化
     for (let i = 0; i < len; i++) {
       const next = (i + 1) % len;
+      ctx.beginPath();
       ctx.moveTo(centerPos.x, centerPos.y);
       ctx.lineTo(projectedVertices[i].x, projectedVertices[i].y);
       ctx.lineTo(projectedVertices[next].x, projectedVertices[next].y);
       ctx.closePath();
+      ctx.fill();
     }
   } else {
     // 通常のフラットポリゴン描画
+    ctx.beginPath();
     const firstPos = computeScreenPosition(
       fillVertices[0].point3D,
       fillVertices[0].lon,
@@ -306,9 +318,8 @@ function renderCirclePiece(
       ctx.lineTo(pos.x, pos.y);
     }
     ctx.closePath();
+    ctx.fill();
   }
-
-  ctx.fill();
 
   // 輪郭線 (外周円弧部分のみ)
   if (showStroke && arcVertices.length >= 2) {
@@ -436,16 +447,18 @@ function renderPolarCapStripMesh(
       stripLines[k] = intermediateLine;
     }
 
-    // ストリップクアッドの一括構築
+    // ストリップクアッドの描画
     for (let k = 0; k < radialRings; k++) {
       const topPts = stripLines[k];
       const botPts = stripLines[k + 1];
       for (let i = 0; i < count - 1; i++) {
+        ctx.beginPath();
         ctx.moveTo(topPts[i].x, topPts[i].y);
         ctx.lineTo(topPts[i + 1].x, topPts[i + 1].y);
         ctx.lineTo(botPts[i + 1].x, botPts[i + 1].y);
         ctx.lineTo(botPts[i].x, botPts[i].y);
         ctx.closePath();
+        ctx.fill();
       }
     }
   } else {
@@ -477,15 +490,15 @@ function renderPolarCapStripMesh(
       );
     }
     for (let i = 0; i < count - 1; i++) {
+      ctx.beginPath();
       ctx.moveTo(poleLine[i].x, poleLine[i].y);
       ctx.lineTo(poleLine[i + 1].x, poleLine[i + 1].y);
       ctx.lineTo(arcLine[i + 1].x, arcLine[i + 1].y);
       ctx.lineTo(arcLine[i].x, arcLine[i].y);
       ctx.closePath();
+      ctx.fill();
     }
   }
-
-  ctx.fill();
 
   // 輪郭線ストローク (外周円弧部分のみに描画)
   if (showStroke && arcPoints.length >= 2) {
