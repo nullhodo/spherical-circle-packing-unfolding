@@ -193,11 +193,53 @@ export const PackingSection: React.FC<Props> = ({
           }
           className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
         />
-        <div className="flex justify-between text-[10px] text-gray-500">
-          <span>軽量(16)</span>
-          <span>標準(64)</span>
-          <span>高精細(128)</span>
-          <span>極限(256)</span>
+        <div className="relative h-3.5 text-[10px] text-gray-500 select-none">
+          <button
+            type="button"
+            onClick={() => onParamChange("circleSegments", 16)}
+            className={`absolute left-0 hover:text-gray-900 cursor-pointer transition-colors ${
+              params.circleSegments === 16
+                ? "font-semibold text-emerald-700"
+                : ""
+            }`}
+          >
+            軽量(16)
+          </button>
+          <button
+            type="button"
+            onClick={() => onParamChange("circleSegments", 64)}
+            style={{ left: "calc(7px + (100% - 14px) * 0.2)" }}
+            className={`absolute -translate-x-1/2 hover:text-gray-900 cursor-pointer transition-colors whitespace-nowrap ${
+              params.circleSegments === 64
+                ? "font-semibold text-emerald-700"
+                : ""
+            }`}
+          >
+            標準(64)
+          </button>
+          <button
+            type="button"
+            onClick={() => onParamChange("circleSegments", 128)}
+            style={{ left: "calc(7px + (100% - 14px) * 0.4667)" }}
+            className={`absolute -translate-x-1/2 hover:text-gray-900 cursor-pointer transition-colors whitespace-nowrap ${
+              params.circleSegments === 128
+                ? "font-semibold text-emerald-700"
+                : ""
+            }`}
+          >
+            高精細(128)
+          </button>
+          <button
+            type="button"
+            onClick={() => onParamChange("circleSegments", 256)}
+            className={`absolute right-0 hover:text-gray-900 cursor-pointer transition-colors ${
+              params.circleSegments === 256
+                ? "font-semibold text-emerald-700"
+                : ""
+            }`}
+          >
+            極限(256)
+          </button>
         </div>
       </div>
 
@@ -243,11 +285,53 @@ export const PackingSection: React.FC<Props> = ({
               }
               className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-gray-500">
-              <span>軽量(1)</span>
-              <span>標準(4)</span>
-              <span>高精細(8)</span>
-              <span>極限(16)</span>
+            <div className="relative h-3.5 text-[10px] text-gray-500 select-none">
+              <button
+                type="button"
+                onClick={() => onParamChange("domeRings", 1)}
+                className={`absolute left-0 hover:text-gray-900 cursor-pointer transition-colors ${
+                  params.domeRings === 1
+                    ? "font-semibold text-emerald-700"
+                    : ""
+                }`}
+              >
+                軽量(1)
+              </button>
+              <button
+                type="button"
+                onClick={() => onParamChange("domeRings", 4)}
+                style={{ left: "calc(7px + (100% - 14px) * 0.2)" }}
+                className={`absolute -translate-x-1/2 hover:text-gray-900 cursor-pointer transition-colors whitespace-nowrap ${
+                  params.domeRings === 4
+                    ? "font-semibold text-emerald-700"
+                    : ""
+                }`}
+              >
+                標準(4)
+              </button>
+              <button
+                type="button"
+                onClick={() => onParamChange("domeRings", 8)}
+                style={{ left: "calc(7px + (100% - 14px) * 0.4667)" }}
+                className={`absolute -translate-x-1/2 hover:text-gray-900 cursor-pointer transition-colors whitespace-nowrap ${
+                  params.domeRings === 8
+                    ? "font-semibold text-emerald-700"
+                    : ""
+                }`}
+              >
+                高精細(8)
+              </button>
+              <button
+                type="button"
+                onClick={() => onParamChange("domeRings", 16)}
+                className={`absolute right-0 hover:text-gray-900 cursor-pointer transition-colors ${
+                  params.domeRings === 16
+                    ? "font-semibold text-emerald-700"
+                    : ""
+                }`}
+              >
+                極限(16)
+              </button>
             </div>
           </div>
         )}
