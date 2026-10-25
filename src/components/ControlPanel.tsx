@@ -36,7 +36,7 @@ interface Props {
   onShufflePaletteColors: () => void;
   onGenerateGradientTheme: (baseHex: string) => void;
   onRandomizeBackgroundColor: () => void;
-  onSetBackgroundColor: (index: number) => void;
+  onSetBackgroundColor: (index: number, targetHex?: string) => void;
   onRandomizeAll: () => void;
   onStartNLoopRecord: () => void;
   onExportHighRes: () => void;

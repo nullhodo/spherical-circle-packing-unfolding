@@ -22,7 +22,7 @@ interface Props {
   onShufflePaletteColors: () => void;
   onGenerateGradientTheme: (baseHex: string) => void;
   onRandomizeBackgroundColor: () => void;
-  onSetBackgroundColor: (colorIndex: number) => void;
+  onSetBackgroundColor: (colorIndex: number, targetHex?: string) => void;
 }
 
 export const ColorPaletteSection: React.FC<Props> = ({
@@ -40,8 +40,8 @@ export const ColorPaletteSection: React.FC<Props> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const currentPalette =
-    colourPalettes[params.activePaletteIndex] ||
     activePalette ||
+    colourPalettes[params.activePaletteIndex] ||
     colourPalettes[0];
 
   const getPaletteGradient = (
@@ -286,21 +286,46 @@ export const ColorPaletteSection: React.FC<Props> = ({
         </div>
 
         {/* スウォッチ選択 */}
-        <div className="space-y-1">
-          <span className="text-[10px] text-gray-500">
-            現在のパレット色から背景に設定:
-          </span>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-[10px] text-gray-500">
+            <span>現在のパレット色から背景に設定:</span>
+            {params.isExclusiveBackground && (
+              <span className="font-mono text-emerald-600 font-medium truncate max-w-[120px]">
+                {currentPalette.colors[0]?.name ||
+                  currentPalette.colors[0]?.hex}
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1.5">
-            {currentPalette.colors.map((c, idx) => (
-              <button
-                key={c.hex}
-                type="button"
-                onClick={() => onSetBackgroundColor(idx)}
-                title={`${c.name} (${c.hex}) を背景色に設定`}
-                className="w-6 h-6 rounded border border-gray-300/80 hover:scale-110 active:scale-95 transition-transform shadow-2xs cursor-pointer flex-shrink-0"
-                style={{ backgroundColor: c.hex }}
-              />
-            ))}
+            {currentPalette.colors.map((c, idx) => {
+              const isCurrentBg =
+                idx === 0 && params.isExclusiveBackground;
+              const isLight =
+                0.299 * c.rgb[0] + 0.587 * c.rgb[1] + 0.114 * c.rgb[2] >
+                140;
+              return (
+                <button
+                  key={`${c.hex}-${idx}`}
+                  type="button"
+                  onClick={() => onSetBackgroundColor(idx, c.hex)}
+                  title={`${c.name || c.hex} を背景色に設定`}
+                  className={`w-7 h-7 rounded-md border transition-all shadow-2xs cursor-pointer flex items-center justify-center relative ${
+                    isCurrentBg
+                      ? "border-gray-900 ring-2 ring-gray-900/50 scale-105 z-10"
+                      : "border-gray-300/80 hover:scale-110 active:scale-95"
+                  }`}
+                  style={{ backgroundColor: c.hex }}
+                >
+                  {isCurrentBg && (
+                    <CheckIcon
+                      className={`w-3.5 h-3.5 ${
+                        isLight ? "text-gray-900" : "text-white"
+                      }`}
+                    />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>

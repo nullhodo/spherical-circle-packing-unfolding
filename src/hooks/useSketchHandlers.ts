@@ -173,22 +173,40 @@ export function useSketchHandlers() {
   }, [recordHistory, setActivePalette, setParams, setCircles, showToast]);
 
   /**
-   * パレット内の特定インデックスの色を背景色として設定
+   * パレット内の特定の色を背景色として設定
+   * クリックした色を確実に背景色とし、ランダム再抽選せずに該当色のみ元の背景色とスワップする
    */
   const handleSetBackgroundColor = useCallback(
-    (colorIndex: number) => {
+    (colorIndex: number, targetHex?: string) => {
       recordHistory();
       const currentPal = activePaletteRef.current;
-      if (
-        !currentPal ||
-        colorIndex < 0 ||
-        colorIndex >= currentPal.colors.length
-      ) {
+      if (!currentPal || currentPal.colors.length === 0) {
         return;
       }
 
+      // targetHex が渡されていれば hex で厳密に検索し、インデックスのズレを完全防止
+      let foundIndex = -1;
+      if (targetHex) {
+        foundIndex = currentPal.colors.findIndex(
+          (c) => c.hex.toLowerCase() === targetHex.toLowerCase(),
+        );
+      }
+      if (foundIndex === -1) {
+        foundIndex = colorIndex;
+      }
+
+      if (foundIndex < 0 || foundIndex >= currentPal.colors.length) {
+        return;
+      }
+
+      // 既に背景色 (先頭インデックス) の場合は何もしない
+      if (foundIndex === 0 && paramsRef.current.isExclusiveBackground) {
+        return;
+      }
+
+      const prevBgColor = currentPal.colors[0];
       const colors = [...currentPal.colors];
-      const [chosen] = colors.splice(colorIndex, 1);
+      const [chosen] = colors.splice(foundIndex, 1);
       colors.unshift(chosen);
 
       const updatedPalette: Palette = {
@@ -201,30 +219,43 @@ export function useSketchHandlers() {
         setParams((prev) => ({ ...prev, isExclusiveBackground: true }));
       }
 
-      const usableColors = colors.length > 1 ? colors.slice(1) : colors;
+      // 円の色のスワップ:
+      // 新しい背景色と同じ色だった円のみ、直前の背景色 (prevBgColor) に置き換える。
+      // 他の円の色は一切変えないことで、ガチャガチャとランダムに変わるのを完全に防止！
+      const chosenHexLower = chosen.hex.toLowerCase();
       setCircles((prevCircles) =>
         prevCircles.map((circle) => {
-          const primaryChoice =
-            usableColors[
-              Math.floor(Math.random() * usableColors.length)
-            ] || colors[0];
-          const secondaryChoice =
-            usableColors[
-              Math.floor(Math.random() * usableColors.length)
-            ] || primaryChoice;
+          const isPrimarySameAsNewBg =
+            circle.primaryHex?.toLowerCase() === chosenHexLower ||
+            (circle.primaryColor[0] === chosen.rgb[0] &&
+              circle.primaryColor[1] === chosen.rgb[1] &&
+              circle.primaryColor[2] === chosen.rgb[2]);
+
+          const isSecondarySameAsNewBg =
+            circle.secondaryColor[0] === chosen.rgb[0] &&
+            circle.secondaryColor[1] === chosen.rgb[1] &&
+            circle.secondaryColor[2] === chosen.rgb[2];
+
+          if (!isPrimarySameAsNewBg && !isSecondarySameAsNewBg) {
+            return circle;
+          }
+
           return {
             ...circle,
-            primaryColor: primaryChoice.rgb,
-            secondaryColor: secondaryChoice.rgb,
-            primaryHex: primaryChoice.hex,
+            primaryColor: isPrimarySameAsNewBg
+              ? prevBgColor.rgb
+              : circle.primaryColor,
+            primaryHex: isPrimarySameAsNewBg
+              ? prevBgColor.hex
+              : circle.primaryHex,
+            secondaryColor: isSecondarySameAsNewBg
+              ? prevBgColor.rgb
+              : circle.secondaryColor,
           };
         }),
       );
 
-      showToast(
-        `背景色をパレットから設定: ${chosen.name || chosen.hex}`,
-        "info",
-      );
+      showToast(`背景色を設定: ${chosen.name || chosen.hex}`, "info");
     },
     [recordHistory, setActivePalette, setParams, setCircles, showToast],
   );
