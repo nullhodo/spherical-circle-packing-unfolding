@@ -29,13 +29,81 @@ interface ProjectedSamplePoint {
   lat: number;
 }
 
+interface StaticGridSample {
+  point3D: [number, number, number];
+  lon: number;
+  lat: number;
+}
+
+interface StaticGridLine {
+  isKeyLine: boolean;
+  samples: StaticGridSample[];
+}
+
+let CACHED_GRID_LINES: {
+  parallels: StaticGridLine[];
+  meridians: StaticGridLine[];
+} | null = null;
+
+function getStaticGridLines(): {
+  parallels: StaticGridLine[];
+  meridians: StaticGridLine[];
+} {
+  if (CACHED_GRID_LINES) return CACHED_GRID_LINES;
+
+  const latitudeSteps = 12;
+  const longitudeSteps = 24;
+  const segmentResolution = 96;
+
+  const parallels: StaticGridLine[] = [];
+  for (let latIdx = 1; latIdx < latitudeSteps; latIdx++) {
+    const lat = -Math.PI / 2 + (latIdx / latitudeSteps) * Math.PI;
+    const isEquator = Math.abs(lat) < 0.05;
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    const samples: StaticGridSample[] = [];
+
+    for (let step = 0; step <= segmentResolution; step++) {
+      const lon = -Math.PI + (step / segmentResolution) * Math.PI * 2;
+      const px = cosLat * Math.cos(lon);
+      const py = sinLat;
+      const pz = cosLat * Math.sin(lon);
+      samples.push({ point3D: [px, py, pz], lon, lat });
+    }
+    parallels.push({ isKeyLine: isEquator, samples });
+  }
+
+  const meridians: StaticGridLine[] = [];
+  for (let lonIdx = 0; lonIdx <= longitudeSteps; lonIdx++) {
+    const lon = -Math.PI + (lonIdx / longitudeSteps) * Math.PI * 2;
+    const isSeamBorder = lonIdx === 0 || lonIdx === longitudeSteps;
+    const isPrimeMeridian =
+      Math.abs(lon) < 0.05 || Math.abs(Math.abs(lon) - Math.PI) < 0.05;
+    const isKeyLine = isPrimeMeridian || isSeamBorder;
+    const cosLon = Math.cos(lon);
+    const sinLon = Math.sin(lon);
+    const samples: StaticGridSample[] = [];
+
+    for (let step = 0; step <= segmentResolution; step++) {
+      const lat = -Math.PI / 2 + (step / segmentResolution) * Math.PI;
+      const cosLat = Math.cos(lat);
+      const py = Math.sin(lat);
+      const px = cosLat * cosLon;
+      const pz = cosLat * sinLon;
+      samples.push({ point3D: [px, py, pz], lon, lat });
+    }
+    meridians.push({ isKeyLine, samples });
+  }
+
+  CACHED_GRID_LINES = { parallels, meridians };
+  return CACHED_GRID_LINES;
+}
+
 /**
- * 球の表裏クリッピング境界で途切れた区間ごとに
- * beginShape / vertex / endShape を安全に呼び出すヘルパー関数
- * 解決策 3: 境界点補間は画面2D直線ではなく、真の球面3D投影点を用いて輪郭Jitterを排除
+ * 球の表裏クリッピング境界で途切れた区間ごとにネイティブ Canvas2D でパスを描画
  */
 function renderClippedPolyline(
-  p5Instance: p5,
+  ctx: CanvasRenderingContext2D,
   points: ProjectedSamplePoint[],
   isFront: boolean,
   threshold: number,
@@ -44,28 +112,17 @@ function renderClippedPolyline(
 ): void {
   if (points.length < 2) return;
 
-  // モーフィング展開時またはアンダーレイ全描画時は全頂点を一本の連続パスとして描画
   if (isUnclipped) {
-    p5Instance.beginShape();
-    for (let i = 0; i < points.length; i++) {
-      p5Instance.vertex(points[i].screenX, points[i].screenY);
+    ctx.beginPath();
+    ctx.moveTo(points[0].screenX, points[0].screenY);
+    for (let i = 1; i < points.length; i++) {
+      ctx.lineTo(points[i].screenX, points[i].screenY);
     }
-    p5Instance.endShape();
+    ctx.stroke();
     return;
   }
 
-  let currentStrip: { x: number; y: number }[] | null = null;
-
-  const flushStrip = () => {
-    if (currentStrip && currentStrip.length >= 2) {
-      p5Instance.beginShape();
-      for (let i = 0; i < currentStrip.length; i++) {
-        p5Instance.vertex(currentStrip[i].x, currentStrip[i].y);
-      }
-      p5Instance.endShape();
-    }
-    currentStrip = null;
-  };
+  let inStrip = false;
 
   for (let i = 0; i < points.length - 1; i++) {
     const pA = points[i];
@@ -75,17 +132,13 @@ function renderClippedPolyline(
     const bVis = isFront ? pB.depthZ >= threshold : pB.depthZ < threshold;
 
     if (aVis && bVis) {
-      // 両端点ともに可視
-      if (!currentStrip) {
-        currentStrip = [
-          { x: pA.screenX, y: pA.screenY },
-          { x: pB.screenX, y: pB.screenY },
-        ];
-      } else {
-        currentStrip.push({ x: pB.screenX, y: pB.screenY });
+      if (!inStrip) {
+        ctx.beginPath();
+        ctx.moveTo(pA.screenX, pA.screenY);
+        inStrip = true;
       }
+      ctx.lineTo(pB.screenX, pB.screenY);
     } else if (aVis && !bVis) {
-      // pA は可視、pB は不可視 -> 真の球面境界点で打ち切り
       const denominator = pB.depthZ - pA.depthZ;
       const t =
         denominator !== 0
@@ -96,21 +149,15 @@ function renderClippedPolyline(
       const clipLat = pA.lat + t * (pB.lat - pA.lat);
       const clipPoint = samplePointFn(clipLon, clipLat);
 
-      if (!currentStrip) {
-        currentStrip = [
-          { x: pA.screenX, y: pA.screenY },
-          { x: clipPoint.screenX, y: clipPoint.screenY },
-        ];
-      } else {
-        currentStrip.push({
-          x: clipPoint.screenX,
-          y: clipPoint.screenY,
-        });
+      if (!inStrip) {
+        ctx.beginPath();
+        ctx.moveTo(pA.screenX, pA.screenY);
+        inStrip = true;
       }
-      flushStrip();
+      ctx.lineTo(clipPoint.screenX, clipPoint.screenY);
+      ctx.stroke();
+      inStrip = false;
     } else if (!aVis && bVis) {
-      // pA は不可視、pB は可視 -> 真の球面境界点から開始
-      flushStrip();
       const denominator = pB.depthZ - pA.depthZ;
       const t =
         denominator !== 0
@@ -121,74 +168,26 @@ function renderClippedPolyline(
       const clipLat = pA.lat + t * (pB.lat - pA.lat);
       const clipPoint = samplePointFn(clipLon, clipLat);
 
-      currentStrip = [
-        { x: clipPoint.screenX, y: clipPoint.screenY },
-        { x: pB.screenX, y: pB.screenY },
-      ];
+      ctx.beginPath();
+      ctx.moveTo(clipPoint.screenX, clipPoint.screenY);
+      ctx.lineTo(pB.screenX, pB.screenY);
+      inStrip = true;
     } else {
-      // 両端点とも不可視
-      flushStrip();
+      if (inStrip) {
+        ctx.stroke();
+        inStrip = false;
+      }
     }
   }
-  flushStrip();
-}
 
-/**
- * 経度・緯度から3D回転および平面投影を合成したスクリーン座標を計算
- */
-function sampleSphericalPoint(
-  longitudeAngle: number,
-  latitudeAngle: number,
-  baseRadius: number,
-  currentMorphProgress: number,
-  projectionMethod: ProjectionMethod,
-  projectionScaleMultiplier: number,
-  rotationAngleX: number,
-  rotationAngleY: number,
-  isFrontLayer = true,
-  isUnderlay = false,
-  transitionMode: MorphTransitionMode = "direct",
-): ProjectedSamplePoint {
-  const px = Math.cos(latitudeAngle) * Math.cos(longitudeAngle);
-  const py = Math.sin(latitudeAngle);
-  const pz = Math.cos(latitudeAngle) * Math.sin(longitudeAngle);
-
-  // 半径バイアス (Depth Bias):
-  // アンダーレイ時は円の直下 (baseRadius * 0.999) に安定配置
-  // オーバーレイ前面時は円の表面より +0.5% (約+1.2px) 浮かす
-  const morphFade = 1 - currentMorphProgress;
-  let radiusBias = 0;
-  if (isUnderlay) {
-    radiusBias = -0.001 * morphFade;
-  } else {
-    radiusBias = isFrontLayer ? 0.005 * morphFade : -0.002 * morphFade;
+  if (inStrip) {
+    ctx.stroke();
   }
-  const effectiveSphereRadius = baseRadius * (1 + radiusBias);
-
-  const res = computeMorphedPoint2D({
-    point3D: [px, py, pz],
-    lon: longitudeAngle,
-    lat: latitudeAngle,
-    baseRadius: effectiveSphereRadius,
-    currentMorphProgress,
-    projectionMethod,
-    projectionScaleMultiplier,
-    rotationAngleX,
-    rotationAngleY,
-    transitionMode,
-  });
-
-  return {
-    screenX: res.x,
-    screenY: res.y,
-    depthZ: res.depthZ,
-    lon: longitudeAngle,
-    lat: latitudeAngle,
-  };
 }
 
 /**
  * 経線・緯線 (Graticule) を描画する関数
+ * 事前サンプリングキャッシュと Canvas2D パス直接描画により超高速化
  */
 export function renderGraticuleGridLines(
   p5Instance: p5,
@@ -210,23 +209,14 @@ export function renderGraticuleGridLines(
 
   const isUnderlay = gridLayerMode === "underlay";
 
-  // 【解決策 1: アンダーレイ方式】
-  // グリッドを円の背後 (下層) に敷く場合:
-  // 円の描画前 (isFrontLayer === false) に全球のグリッドを完全描画し、
-  // 円の描画後 (isFrontLayer === true) は何も描画しない (チラつきを完全ゼロ化)
   if (isUnderlay && isFrontLayer) {
     return;
   }
 
-  // オーバーレイ時: 背面レイヤーはモーフィング進行に伴いフェードアウト
   if (!isUnderlay && !isFrontLayer && currentMorphProgress >= 0.4) {
     return;
   }
 
-  p5Instance.push();
-  p5Instance.noFill();
-
-  // 現在の背景色に基づいて明暗コントラストの高いグリッド色を算出
   const currentBg =
     isExclusiveBackground && activePalette.colors.length > 0
       ? activePalette.colors[0].rgb
@@ -237,7 +227,6 @@ export function renderGraticuleGridLines(
   const gridStrokeColor =
     backgroundBrightness > 128 ? [30, 41, 59] : [241, 245, 249];
 
-  // 不透明度
   let baseAlpha = 140;
   if (isUnderlay) {
     baseAlpha = 150;
@@ -249,66 +238,88 @@ export function renderGraticuleGridLines(
   }
 
   if (baseAlpha <= 0) {
-    p5Instance.pop();
     return;
   }
 
-  // アンダーレイ時は常に全球のグリッドを一本の連続パスとして全描画 (クリッピング不要・途切れゼロ)
-  // オーバーレイ時はモーフィング展開進行に伴いクリッピング解除
   const isUnclipped =
     isUnderlay || (isFrontLayer && currentMorphProgress >= 0.15);
   const depthThreshold = isFrontLayer ? -currentMorphProgress * 2.0 : 0.0;
 
-  const latitudeSteps = 12;
-  const longitudeSteps = 24;
-  const segmentResolution = 96;
+  const morphFade = 1 - currentMorphProgress;
+  let radiusBias = 0;
+  if (isUnderlay) {
+    radiusBias = -0.001 * morphFade;
+  } else {
+    radiusBias = isFrontLayer ? 0.005 * morphFade : -0.002 * morphFade;
+  }
+  const effectiveSphereRadius = baseRadius * (1 + radiusBias);
 
-  const samplePoint = (lon: number, lat: number): ProjectedSamplePoint =>
-    sampleSphericalPoint(
+  const samplePoint = (lon: number, lat: number): ProjectedSamplePoint => {
+    const cosLat = Math.cos(lat);
+    const px = cosLat * Math.cos(lon);
+    const py = Math.sin(lat);
+    const pz = cosLat * Math.sin(lon);
+
+    const res = computeMorphedPoint2D({
+      point3D: [px, py, pz],
       lon,
       lat,
-      baseRadius,
+      baseRadius: effectiveSphereRadius,
       currentMorphProgress,
       projectionMethod,
       projectionScaleMultiplier,
       rotationAngleX,
       rotationAngleY,
-      isFrontLayer,
-      isUnderlay,
-      morphTransitionMode,
-    );
+      transitionMode: morphTransitionMode,
+    });
 
-  // 1. 緯線（Parallels: 赤道を含む）
-  for (
-    let latitudeIndex = 1;
-    latitudeIndex < latitudeSteps;
-    latitudeIndex++
-  ) {
-    const latitudeAngle =
-      -Math.PI / 2 + (latitudeIndex / latitudeSteps) * Math.PI;
-    const isEquator = Math.abs(latitudeAngle) < 0.05;
+    return {
+      screenX: res.x,
+      screenY: res.y,
+      depthZ: res.depthZ,
+      lon,
+      lat,
+    };
+  };
 
-    p5Instance.stroke(
-      gridStrokeColor[0],
-      gridStrokeColor[1],
-      gridStrokeColor[2],
-      isEquator ? Math.min(255, baseAlpha + 65) : baseAlpha,
-    );
-    p5Instance.strokeWeight(isEquator ? 1.8 : 1.15);
+  const ctx = p5Instance.drawingContext as CanvasRenderingContext2D;
+  const { parallels, meridians } = getStaticGridLines();
 
-    const points: ProjectedSamplePoint[] = [];
-    for (
-      let segmentIndex = 0;
-      segmentIndex <= segmentResolution;
-      segmentIndex++
-    ) {
-      const longitudeAngle =
-        -Math.PI + (segmentIndex / segmentResolution) * Math.PI * 2;
-      points.push(samplePoint(longitudeAngle, latitudeAngle));
+  // 1. 緯線（Parallels）
+  for (let i = 0; i < parallels.length; i++) {
+    const line = parallels[i];
+    const alpha = line.isKeyLine
+      ? Math.min(255, baseAlpha + 65)
+      : baseAlpha;
+    ctx.strokeStyle = `rgba(${gridStrokeColor[0]},${gridStrokeColor[1]},${gridStrokeColor[2]},${alpha / 255})`;
+    ctx.lineWidth = line.isKeyLine ? 1.8 : 1.15;
+
+    const points: ProjectedSamplePoint[] = new Array(line.samples.length);
+    for (let s = 0; s < line.samples.length; s++) {
+      const sample = line.samples[s];
+      const res = computeMorphedPoint2D({
+        point3D: sample.point3D,
+        lon: sample.lon,
+        lat: sample.lat,
+        baseRadius: effectiveSphereRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode: morphTransitionMode,
+      });
+      points[s] = {
+        screenX: res.x,
+        screenY: res.y,
+        depthZ: res.depthZ,
+        lon: sample.lon,
+        lat: sample.lat,
+      };
     }
 
     renderClippedPolyline(
-      p5Instance,
+      ctx,
       points,
       isFrontLayer,
       depthThreshold,
@@ -317,44 +328,41 @@ export function renderGraticuleGridLines(
     );
   }
 
-  // 2. 経線（Meridians: 本初子午線およびちぎる経線の両側を含む）
-  for (
-    let longitudeIndex = 0;
-    longitudeIndex <= longitudeSteps;
-    longitudeIndex++
-  ) {
-    const longitudeAngle =
-      -Math.PI + (longitudeIndex / longitudeSteps) * Math.PI * 2;
+  // 2. 経線（Meridians）
+  for (let i = 0; i < meridians.length; i++) {
+    const line = meridians[i];
+    const alpha = line.isKeyLine
+      ? Math.min(255, baseAlpha + 65)
+      : baseAlpha;
+    ctx.strokeStyle = `rgba(${gridStrokeColor[0]},${gridStrokeColor[1]},${gridStrokeColor[2]},${alpha / 255})`;
+    ctx.lineWidth = line.isKeyLine ? 1.8 : 1.15;
 
-    const isSeamBorder =
-      longitudeIndex === 0 || longitudeIndex === longitudeSteps;
-    const isPrimeMeridian =
-      Math.abs(longitudeAngle) < 0.05 ||
-      Math.abs(Math.abs(longitudeAngle) - Math.PI) < 0.05;
-
-    const isKeyLine = isPrimeMeridian || isSeamBorder;
-
-    p5Instance.stroke(
-      gridStrokeColor[0],
-      gridStrokeColor[1],
-      gridStrokeColor[2],
-      isKeyLine ? Math.min(255, baseAlpha + 65) : baseAlpha,
-    );
-    p5Instance.strokeWeight(isKeyLine ? 1.8 : 1.15);
-
-    const points: ProjectedSamplePoint[] = [];
-    for (
-      let segmentIndex = 0;
-      segmentIndex <= segmentResolution;
-      segmentIndex++
-    ) {
-      const latitudeAngle =
-        -Math.PI / 2 + (segmentIndex / segmentResolution) * Math.PI;
-      points.push(samplePoint(longitudeAngle, latitudeAngle));
+    const points: ProjectedSamplePoint[] = new Array(line.samples.length);
+    for (let s = 0; s < line.samples.length; s++) {
+      const sample = line.samples[s];
+      const res = computeMorphedPoint2D({
+        point3D: sample.point3D,
+        lon: sample.lon,
+        lat: sample.lat,
+        baseRadius: effectiveSphereRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotationAngleX,
+        rotationAngleY,
+        transitionMode: morphTransitionMode,
+      });
+      points[s] = {
+        screenX: res.x,
+        screenY: res.y,
+        depthZ: res.depthZ,
+        lon: sample.lon,
+        lat: sample.lat,
+      };
     }
 
     renderClippedPolyline(
-      p5Instance,
+      ctx,
       points,
       isFrontLayer,
       depthThreshold,
@@ -362,6 +370,4 @@ export function renderGraticuleGridLines(
       samplePoint,
     );
   }
-
-  p5Instance.pop();
 }

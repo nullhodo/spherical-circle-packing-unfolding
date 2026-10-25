@@ -5,7 +5,11 @@ import type {
   SphericalCircle,
 } from "../../types/sketch";
 import { computeMorphedPoint2D } from "../math/morphing";
-import { applySphereOrientationRotation } from "../math/rotation";
+import {
+  type CachedCircleGeometry,
+  type SphericalPoint,
+  getCachedCircleGeometry,
+} from "./circleCache";
 
 interface CircleRenderOptions {
   circles: SphericalCircle[];
@@ -23,39 +27,17 @@ interface CircleRenderOptions {
   domeRings?: number;
 }
 
-interface SphericalPoint {
-  point3D: [number, number, number];
-  lon: number; // -PI 〜 PI
-  lat: number; // -PI/2 〜 PI/2
+interface RotationMatrix {
+  cosX: number;
+  sinX: number;
+  cosY: number;
+  sinY: number;
+  angleX: number;
+  angleY: number;
 }
 
 /**
- * セグメントごとの三角関数テーブル (cos, sin) をキャッシュして毎フレームの計算を省略
- */
-const TRIG_TABLE_CACHE: {
-  [count: number]: { cos: Float64Array; sin: Float64Array };
-} = {};
-function getTrigTable(count: number): {
-  cos: Float64Array;
-  sin: Float64Array;
-} {
-  let table = TRIG_TABLE_CACHE[count];
-  if (!table) {
-    const cos = new Float64Array(count);
-    const sin = new Float64Array(count);
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2;
-      cos[i] = Math.cos(angle);
-      sin[i] = Math.sin(angle);
-    }
-    table = { cos, sin };
-    TRIG_TABLE_CACHE[count] = table;
-  }
-  return table;
-}
-
-/**
- * 3D点と経度・緯度からスクリーン座標を算出 (進行度に応じたゼロコスト最適化パス付き)
+ * 3D点と経度・緯度からスクリーン座標を算出
  */
 function computeScreenPosition(
   point3D: [number, number, number],
@@ -65,10 +47,20 @@ function computeScreenPosition(
   currentMorphProgress: number,
   projectionMethod: ProjectionMethod,
   projectionScaleMultiplier: number,
-  rotationAngleX: number,
-  rotationAngleY: number,
+  rotMat: RotationMatrix,
   transitionMode: MorphTransitionMode = "direct",
 ): { x: number; y: number } {
+  // 3D自転時のゼロ・プロジェクション高速パス (ダイレクト遷移時のみ地図投影スキップ & 行列インライン展開)
+  if (currentMorphProgress <= 1e-4 && transitionMode === "direct") {
+    const x1 = point3D[0] * rotMat.cosY + point3D[2] * rotMat.sinY;
+    const y1 = point3D[1];
+    const z1 = -point3D[0] * rotMat.sinY + point3D[2] * rotMat.cosY;
+    return {
+      x: x1 * baseRadius,
+      y: (y1 * rotMat.cosX - z1 * rotMat.sinX) * baseRadius,
+    };
+  }
+
   const result = computeMorphedPoint2D({
     point3D,
     lon,
@@ -77,243 +69,194 @@ function computeScreenPosition(
     currentMorphProgress,
     projectionMethod,
     projectionScaleMultiplier,
-    rotationAngleX,
-    rotationAngleY,
+    rotationAngleX: rotMat.angleX,
+    rotationAngleY: rotMat.angleY,
     transitionMode,
   });
   return { x: result.x, y: result.y };
 }
 
 /**
- * 球面の曲率にフィットした同心リングメッシュ (Spherical Dome Mesh) を描画する関数
- * 半径に応じた適応型LODと三角関数テーブル参照により、見た目を変えずに超軽量化・高精細化
+ * 球面の曲率にフィットした同心リングメッシュを描画する関数
+ * 事前キャッシュされた頂点データとネイティブ Canvas2D パスにより超高速描画
  */
 function renderSphericalFittedCircle(
-  p5Instance: p5,
-  circleData: SphericalCircle,
-  rawVertices: SphericalPoint[],
+  ctx: CanvasRenderingContext2D,
+  geometry: CachedCircleGeometry,
   baseRadius: number,
   currentMorphProgress: number,
   projectionMethod: ProjectionMethod,
   projectionScaleMultiplier: number,
-  rotationAngleX: number,
-  rotationAngleY: number,
+  rotMat: RotationMatrix,
   showStroke: boolean,
-  circleVerticesCount: number,
   transitionMode: MorphTransitionMode = "direct",
-  domeRings = 4,
 ): void {
-  // 適応型LOD:
-  // 極小円(半径<0.03rad)は球面の凹凸がサブピクセル未満のため中心ファンのみ(1段)で十分
-  // 中〜大円はユーザー指定の domeRings(1〜16) に応じて同心リング多段メッシュを形成
-  let radialRings = 1;
-  if (circleData.angularRadius >= 0.03 && domeRings > 1) {
-    const scale = Math.min(1, circleData.angularRadius / 0.15);
-    radialRings = Math.max(
-      1,
-      Math.min(domeRings, Math.round(domeRings * scale)),
-    );
-  }
+  const { circle, radialRings, rawVertices, domeRingsVertices } = geometry;
+  const count = rawVertices.length;
 
-  // 中心点 (k = 0)
+  // 1. 中心点のスクリーン座標
   const centerScreenPos = computeScreenPosition(
-    circleData.normalVector,
-    circleData.longitude,
-    circleData.latitude,
+    circle.normalVector,
+    circle.longitude,
+    circle.latitude,
     baseRadius,
     currentMorphProgress,
     projectionMethod,
     projectionScaleMultiplier,
-    rotationAngleX,
-    rotationAngleY,
+    rotMat,
     transitionMode,
   );
 
-  // 外周リング (k = radialRings): 既に計算済みの rawVertices を投影
-  const outerRingPoints: { x: number; y: number }[] = [];
-  for (let j = 0; j < rawVertices.length; j++) {
+  // 2. 外周リングのスクリーン座標
+  const outerRingPoints: { x: number; y: number }[] = new Array(count);
+  for (let j = 0; j < count; j++) {
     const v = rawVertices[j];
-    outerRingPoints.push(
-      computeScreenPosition(
-        v.point3D,
-        v.lon,
-        v.lat,
-        baseRadius,
-        currentMorphProgress,
-        projectionMethod,
-        projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
-        transitionMode,
-      ),
+    outerRingPoints[j] = computeScreenPosition(
+      v.point3D,
+      v.lon,
+      v.lat,
+      baseRadius,
+      currentMorphProgress,
+      projectionMethod,
+      projectionScaleMultiplier,
+      rotMat,
+      transitionMode,
     );
   }
 
-  p5Instance.push();
-  p5Instance.noStroke();
+  ctx.beginPath();
 
   if (radialRings === 1) {
-    // 1段: 中心ファンのみ (計算量最小)
-    p5Instance.beginShape(p5Instance.TRIANGLE_FAN);
-    p5Instance.vertex(centerScreenPos.x, centerScreenPos.y);
-    for (let j = 0; j < circleVerticesCount; j++) {
-      p5Instance.vertex(outerRingPoints[j].x, outerRingPoints[j].y);
+    // 1段: 中心ファンのみ
+    for (let j = 0; j < count; j++) {
+      const next = (j + 1) % count;
+      ctx.moveTo(centerScreenPos.x, centerScreenPos.y);
+      ctx.lineTo(outerRingPoints[j].x, outerRingPoints[j].y);
+      ctx.lineTo(outerRingPoints[next].x, outerRingPoints[next].y);
+      ctx.closePath();
     }
-    p5Instance.vertex(outerRingPoints[0].x, outerRingPoints[0].y);
-    p5Instance.endShape();
   } else {
-    // 多段メッシュ: k = 1 〜 radialRings-1 の中間リング座標を生成
-    const trigTable = getTrigTable(circleVerticesCount);
-    const needLonLat = currentMorphProgress > 1e-4;
-
+    // 多段メッシュ: 中間リングの投影
     const allRings: { x: number; y: number }[][] = new Array(
       radialRings + 1,
     );
     allRings[radialRings] = outerRingPoints;
 
     for (let k = 1; k < radialRings; k++) {
-      const ringRadius = circleData.angularRadius * (k / radialRings);
-      const cosRingRad = Math.cos(ringRadius);
-      const sinRingRad = Math.sin(ringRadius);
-      const ringPoints: { x: number; y: number }[] = [];
-
-      for (let j = 0; j < circleVerticesCount; j++) {
-        const cosP = trigTable.cos[j];
-        const sinP = trigTable.sin[j];
-
-        const px =
-          circleData.normalVector[0] * cosRingRad +
-          (circleData.basisVectorU[0] * cosP +
-            circleData.basisVectorV[0] * sinP) *
-            sinRingRad;
-        const py =
-          circleData.normalVector[1] * cosRingRad +
-          (circleData.basisVectorU[1] * cosP +
-            circleData.basisVectorV[1] * sinP) *
-            sinRingRad;
-        const pz =
-          circleData.normalVector[2] * cosRingRad +
-          (circleData.basisVectorU[2] * cosP +
-            circleData.basisVectorV[2] * sinP) *
-            sinRingRad;
-
-        const lon = needLonLat ? Math.atan2(pz, px) : 0;
-        const lat = needLonLat
-          ? Math.asin(Math.max(-1, Math.min(1, py)))
-          : 0;
-
-        ringPoints.push(
-          computeScreenPosition(
-            [px, py, pz],
-            lon,
-            lat,
-            baseRadius,
-            currentMorphProgress,
-            projectionMethod,
-            projectionScaleMultiplier,
-            rotationAngleX,
-            rotationAngleY,
-            transitionMode,
-          ),
+      const ringPts = domeRingsVertices[k - 1];
+      const projectedRing: { x: number; y: number }[] = new Array(count);
+      for (let j = 0; j < count; j++) {
+        const v = ringPts[j];
+        projectedRing[j] = computeScreenPosition(
+          v.point3D,
+          v.lon,
+          v.lat,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotMat,
+          transitionMode,
         );
       }
-      allRings[k] = ringPoints;
+      allRings[k] = projectedRing;
     }
 
     // 1段目: 中心ファン (中心 -> ring 1)
-    p5Instance.beginShape(p5Instance.TRIANGLE_FAN);
-    p5Instance.vertex(centerScreenPos.x, centerScreenPos.y);
     const ring1 = allRings[1];
-    for (let j = 0; j < circleVerticesCount; j++) {
-      p5Instance.vertex(ring1[j].x, ring1[j].y);
+    for (let j = 0; j < count; j++) {
+      const next = (j + 1) % count;
+      ctx.moveTo(centerScreenPos.x, centerScreenPos.y);
+      ctx.lineTo(ring1[j].x, ring1[j].y);
+      ctx.lineTo(ring1[next].x, ring1[next].y);
+      ctx.closePath();
     }
-    p5Instance.vertex(ring1[0].x, ring1[0].y);
-    p5Instance.endShape();
 
-    // 2段目以降: TRIANGLE_STRIP (ring k -> ring k+1)
+    // 2段目以降: ストリップクアッド (ring k -> ring k+1)
     for (let k = 1; k < radialRings; k++) {
       const innerRing = allRings[k];
       const outerRing = allRings[k + 1];
-      p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-      for (let j = 0; j <= circleVerticesCount; j++) {
-        const idx = j % circleVerticesCount;
-        p5Instance.vertex(innerRing[idx].x, innerRing[idx].y);
-        p5Instance.vertex(outerRing[idx].x, outerRing[idx].y);
+      for (let j = 0; j < count; j++) {
+        const next = (j + 1) % count;
+        ctx.moveTo(innerRing[j].x, innerRing[j].y);
+        ctx.lineTo(outerRing[j].x, outerRing[j].y);
+        ctx.lineTo(outerRing[next].x, outerRing[next].y);
+        ctx.lineTo(innerRing[next].x, innerRing[next].y);
+        ctx.closePath();
       }
-      p5Instance.endShape();
     }
   }
 
-  p5Instance.pop();
+  // 一括 fill
+  ctx.fill();
 
   // 輪郭線ストローク (外周のみに適用)
   if (showStroke && outerRingPoints.length >= 2) {
-    p5Instance.beginShape();
-    for (let j = 0; j < outerRingPoints.length; j++) {
-      p5Instance.vertex(outerRingPoints[j].x, outerRingPoints[j].y);
+    ctx.beginPath();
+    ctx.moveTo(outerRingPoints[0].x, outerRingPoints[0].y);
+    for (let j = 1; j < count; j++) {
+      ctx.lineTo(outerRingPoints[j].x, outerRingPoints[j].y);
     }
-    p5Instance.endShape(p5Instance.CLOSE);
+    ctx.closePath();
+    ctx.stroke();
   }
 }
 
 /**
- * 分割されたピース（または単一円）を描画する
- * fitSphericalSurface 有効時は球面上の重心ファンを適用し、シームピースや極キャップも球面にフィット
+ * 分割ピース（東側/西側ちぎれピース、またはフラット円）を描画する関数
  */
 function renderCirclePiece(
-  p5Instance: p5,
+  ctx: CanvasRenderingContext2D,
   fillVertices: SphericalPoint[],
   arcVertices: SphericalPoint[],
   baseRadius: number,
   currentMorphProgress: number,
   projectionMethod: ProjectionMethod,
   projectionScaleMultiplier: number,
-  rotationAngleX: number,
-  rotationAngleY: number,
+  rotMat: RotationMatrix,
   showStroke: boolean,
-  fitSphericalSurface = false,
+  fitSphericalSurface: boolean,
   transitionMode: MorphTransitionMode = "direct",
 ): void {
-  p5Instance.push();
-  p5Instance.noStroke();
+  if (fillVertices.length < 3) return;
 
-  if (fitSphericalSurface && fillVertices.length >= 3) {
+  ctx.beginPath();
+
+  if (fitSphericalSurface) {
     // 球面上の重心を計算し球面上半径1へ正規化
     let cx = 0;
     let cy = 0;
     let cz = 0;
     let sumLon = 0;
     let sumLat = 0;
-    for (let i = 0; i < fillVertices.length; i++) {
+    const len = fillVertices.length;
+    for (let i = 0; i < len; i++) {
       cx += fillVertices[i].point3D[0];
       cy += fillVertices[i].point3D[1];
       cz += fillVertices[i].point3D[2];
       sumLon += fillVertices[i].lon;
       sumLat += fillVertices[i].lat;
     }
-    const len = Math.hypot(cx, cy, cz) || 1;
-    cx /= len;
-    cy /= len;
-    cz /= len;
+    const norm = Math.hypot(cx, cy, cz) || 1;
+    cx /= norm;
+    cy /= norm;
+    cz /= norm;
 
     const centerPos = computeScreenPosition(
       [cx, cy, cz],
-      sumLon / fillVertices.length,
-      sumLat / fillVertices.length,
+      sumLon / len,
+      sumLat / len,
       baseRadius,
       currentMorphProgress,
       projectionMethod,
       projectionScaleMultiplier,
-      rotationAngleX,
-      rotationAngleY,
+      rotMat,
       transitionMode,
     );
 
-    // TRIANGLE_FAN で中心から各外周頂点へファンを張って球面ドーム化
-    p5Instance.beginShape(p5Instance.TRIANGLE_FAN);
-    p5Instance.vertex(centerPos.x, centerPos.y);
-    for (let i = 0; i < fillVertices.length; i++) {
-      const pos = computeScreenPosition(
+    const projectedVertices: { x: number; y: number }[] = new Array(len);
+    for (let i = 0; i < len; i++) {
+      projectedVertices[i] = computeScreenPosition(
         fillVertices[i].point3D,
         fillVertices[i].lon,
         fillVertices[i].lat,
@@ -321,12 +264,21 @@ function renderCirclePiece(
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-      p5Instance.vertex(pos.x, pos.y);
     }
+
+    // TRIANGLE_FAN による球面ドーム化
+    for (let i = 0; i < len; i++) {
+      const next = (i + 1) % len;
+      ctx.moveTo(centerPos.x, centerPos.y);
+      ctx.lineTo(projectedVertices[i].x, projectedVertices[i].y);
+      ctx.lineTo(projectedVertices[next].x, projectedVertices[next].y);
+      ctx.closePath();
+    }
+  } else {
+    // 通常のフラットポリゴン描画
     const firstPos = computeScreenPosition(
       fillVertices[0].point3D,
       fillVertices[0].lon,
@@ -335,66 +287,67 @@ function renderCirclePiece(
       currentMorphProgress,
       projectionMethod,
       projectionScaleMultiplier,
-      rotationAngleX,
-      rotationAngleY,
+      rotMat,
       transitionMode,
     );
-    p5Instance.vertex(firstPos.x, firstPos.y);
-    p5Instance.endShape();
-  } else {
-    // 通常のフラットポリゴン描画
-    p5Instance.beginShape();
-    for (let i = 0; i < fillVertices.length; i++) {
-      const v = fillVertices[i];
+    ctx.moveTo(firstPos.x, firstPos.y);
+    for (let i = 1; i < fillVertices.length; i++) {
       const pos = computeScreenPosition(
-        v.point3D,
-        v.lon,
-        v.lat,
+        fillVertices[i].point3D,
+        fillVertices[i].lon,
+        fillVertices[i].lat,
         baseRadius,
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-      p5Instance.vertex(pos.x, pos.y);
+      ctx.lineTo(pos.x, pos.y);
     }
-    p5Instance.endShape(p5Instance.CLOSE);
+    ctx.closePath();
   }
-  p5Instance.pop();
+
+  ctx.fill();
 
   // 輪郭線 (外周円弧部分のみ)
   if (showStroke && arcVertices.length >= 2) {
-    p5Instance.beginShape();
-    for (let i = 0; i < arcVertices.length; i++) {
-      const v = arcVertices[i];
+    ctx.beginPath();
+    const firstArc = computeScreenPosition(
+      arcVertices[0].point3D,
+      arcVertices[0].lon,
+      arcVertices[0].lat,
+      baseRadius,
+      currentMorphProgress,
+      projectionMethod,
+      projectionScaleMultiplier,
+      rotMat,
+      transitionMode,
+    );
+    ctx.moveTo(firstArc.x, firstArc.y);
+    for (let i = 1; i < arcVertices.length; i++) {
       const pos = computeScreenPosition(
-        v.point3D,
-        v.lon,
-        v.lat,
+        arcVertices[i].point3D,
+        arcVertices[i].lon,
+        arcVertices[i].lat,
         baseRadius,
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-      p5Instance.vertex(pos.x, pos.y);
+      ctx.lineTo(pos.x, pos.y);
     }
-    p5Instance.endShape();
+    ctx.stroke();
   }
 }
 
 /**
- * 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）を、
- * 経線に沿った TRIANGLE_STRIP メッシュで歪みなく描画する関数
- * 球面フィット時は極点〜中間緯度〜外周円弧の2段ストリップにより曲面に密着し、
- * 平面展開時もメルカトル極線から外周円弧へ美しい帯状に展開する
+ * 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）の描画関数
  */
 function renderPolarCapStripMesh(
-  p5Instance: p5,
+  ctx: CanvasRenderingContext2D,
   arcPoints: SphericalPoint[],
   pole3D: [number, number, number],
   poleLat: number,
@@ -402,8 +355,7 @@ function renderPolarCapStripMesh(
   currentMorphProgress: number,
   projectionMethod: ProjectionMethod,
   projectionScaleMultiplier: number,
-  rotationAngleX: number,
-  rotationAngleY: number,
+  rotMat: RotationMatrix,
   showStroke: boolean,
   fitSphericalSurface: boolean,
   transitionMode: MorphTransitionMode = "direct",
@@ -412,195 +364,165 @@ function renderPolarCapStripMesh(
   const count = arcPoints.length;
   if (count < 2) return;
 
-  p5Instance.push();
-  p5Instance.noStroke();
+  ctx.beginPath();
 
   if (fitSphericalSurface) {
     const radialRings = Math.max(1, domeRings);
-    // 多段ストリップメッシュ: 極線 (k=0) -> 各中間段 (k=1..R-1) -> 外周円弧 (k=R)
     const stripLines: { x: number; y: number }[][] = new Array(
       radialRings + 1,
     );
 
     // k=0: 極線
-    const poleLine: { x: number; y: number }[] = [];
+    const poleLine: { x: number; y: number }[] = new Array(count);
     for (let i = 0; i < count; i++) {
-      const curLon = arcPoints[i].lon;
-      poleLine.push(
-        computeScreenPosition(
-          pole3D,
-          curLon,
-          poleLat,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          transitionMode,
-        ),
-      );
-    }
-    stripLines[0] = poleLine;
-
-    // k=radialRings: 外周円弧
-    const arcLine: { x: number; y: number }[] = [];
-    for (let i = 0; i < count; i++) {
-      const arcPt = arcPoints[i];
-      arcLine.push(
-        computeScreenPosition(
-          arcPt.point3D,
-          arcPt.lon,
-          arcPt.lat,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          transitionMode,
-        ),
-      );
-    }
-    stripLines[radialRings] = arcLine;
-
-    // k=1..radialRings-1: 中間段
-    for (let k = 1; k < radialRings; k++) {
-      const t = k / radialRings;
-      const midLine: { x: number; y: number }[] = [];
-      for (let i = 0; i < count; i++) {
-        const arcPt = arcPoints[i];
-        const curLon = arcPt.lon;
-
-        let px = (1 - t) * pole3D[0] + t * arcPt.point3D[0];
-        let py = (1 - t) * pole3D[1] + t * arcPt.point3D[1];
-        let pz = (1 - t) * pole3D[2] + t * arcPt.point3D[2];
-        const pLen = Math.hypot(px, py, pz) || 1;
-        px /= pLen;
-        py /= pLen;
-        pz /= pLen;
-        const midLat = Math.asin(Math.max(-1, Math.min(1, py)));
-
-        midLine.push(
-          computeScreenPosition(
-            [px, py, pz],
-            curLon,
-            midLat,
-            baseRadius,
-            currentMorphProgress,
-            projectionMethod,
-            projectionScaleMultiplier,
-            rotationAngleX,
-            rotationAngleY,
-            transitionMode,
-          ),
-        );
-      }
-      stripLines[k] = midLine;
-    }
-
-    // 各段の TRIANGLE_STRIP
-    for (let k = 0; k < radialRings; k++) {
-      const lineInner = stripLines[k];
-      const lineOuter = stripLines[k + 1];
-      p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-      for (let i = 0; i < count; i++) {
-        p5Instance.vertex(lineInner[i].x, lineInner[i].y);
-        p5Instance.vertex(lineOuter[i].x, lineOuter[i].y);
-      }
-      p5Instance.endShape();
-    }
-  } else {
-    // 1段ストリップメッシュ: 極線 -> 外周円弧 (平面直結)
-    p5Instance.beginShape(p5Instance.TRIANGLE_STRIP);
-    for (let k = 0; k < count; k++) {
-      const arcPt = arcPoints[k];
-      const curLon = arcPt.lon;
-
-      const posPole = computeScreenPosition(
+      poleLine[i] = computeScreenPosition(
         pole3D,
-        curLon,
+        arcPoints[i].lon,
         poleLat,
         baseRadius,
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-      const posArc = computeScreenPosition(
-        arcPt.point3D,
-        curLon,
-        arcPt.lat,
+    }
+    stripLines[0] = poleLine;
+
+    // k=radialRings: 外周円弧
+    const arcLine: { x: number; y: number }[] = new Array(count);
+    for (let i = 0; i < count; i++) {
+      arcLine[i] = computeScreenPosition(
+        arcPoints[i].point3D,
+        arcPoints[i].lon,
+        arcPoints[i].lat,
         baseRadius,
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-
-      p5Instance.vertex(posPole.x, posPole.y);
-      p5Instance.vertex(posArc.x, posArc.y);
     }
-    p5Instance.endShape();
+    stripLines[radialRings] = arcLine;
+
+    // k=1..radialRings-1: 中間補間線
+    for (let k = 1; k < radialRings; k++) {
+      const t = k / radialRings;
+      const intermediateLine: { x: number; y: number }[] = new Array(
+        count,
+      );
+      for (let i = 0; i < count; i++) {
+        const curLon = arcPoints[i].lon;
+        const curLat = poleLat + t * (arcPoints[i].lat - poleLat);
+        const cosLat = Math.cos(curLat);
+        const intermediate3D: [number, number, number] = [
+          cosLat * Math.cos(curLon),
+          Math.sin(curLat),
+          cosLat * Math.sin(curLon),
+        ];
+        intermediateLine[i] = computeScreenPosition(
+          intermediate3D,
+          curLon,
+          curLat,
+          baseRadius,
+          currentMorphProgress,
+          projectionMethod,
+          projectionScaleMultiplier,
+          rotMat,
+          transitionMode,
+        );
+      }
+      stripLines[k] = intermediateLine;
+    }
+
+    // ストリップクアッドの一括構築
+    for (let k = 0; k < radialRings; k++) {
+      const topPts = stripLines[k];
+      const botPts = stripLines[k + 1];
+      for (let i = 0; i < count - 1; i++) {
+        ctx.moveTo(topPts[i].x, topPts[i].y);
+        ctx.lineTo(topPts[i + 1].x, topPts[i + 1].y);
+        ctx.lineTo(botPts[i + 1].x, botPts[i + 1].y);
+        ctx.lineTo(botPts[i].x, botPts[i].y);
+        ctx.closePath();
+      }
+    }
+  } else {
+    // 1段ストリップ (極線 -> 外周円弧)
+    const poleLine: { x: number; y: number }[] = new Array(count);
+    const arcLine: { x: number; y: number }[] = new Array(count);
+    for (let i = 0; i < count; i++) {
+      poleLine[i] = computeScreenPosition(
+        pole3D,
+        arcPoints[i].lon,
+        poleLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        transitionMode,
+      );
+      arcLine[i] = computeScreenPosition(
+        arcPoints[i].point3D,
+        arcPoints[i].lon,
+        arcPoints[i].lat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        transitionMode,
+      );
+    }
+    for (let i = 0; i < count - 1; i++) {
+      ctx.moveTo(poleLine[i].x, poleLine[i].y);
+      ctx.lineTo(poleLine[i + 1].x, poleLine[i + 1].y);
+      ctx.lineTo(arcLine[i + 1].x, arcLine[i + 1].y);
+      ctx.lineTo(arcLine[i].x, arcLine[i].y);
+      ctx.closePath();
+    }
   }
 
-  p5Instance.pop();
+  ctx.fill();
 
-  // 輪郭線ストローク (外周円弧部分のみに描画し、極線境界にはストロークを引かない)
+  // 輪郭線ストローク (外周円弧部分のみに描画)
   if (showStroke && arcPoints.length >= 2) {
-    p5Instance.beginShape();
-    for (let k = 0; k < arcPoints.length; k++) {
-      const arcPt = arcPoints[k];
+    ctx.beginPath();
+    const firstArc = computeScreenPosition(
+      arcPoints[0].point3D,
+      arcPoints[0].lon,
+      arcPoints[0].lat,
+      baseRadius,
+      currentMorphProgress,
+      projectionMethod,
+      projectionScaleMultiplier,
+      rotMat,
+      transitionMode,
+    );
+    ctx.moveTo(firstArc.x, firstArc.y);
+    for (let k = 1; k < arcPoints.length; k++) {
       const posArc = computeScreenPosition(
-        arcPt.point3D,
-        arcPt.lon,
-        arcPt.lat,
+        arcPoints[k].point3D,
+        arcPoints[k].lon,
+        arcPoints[k].lat,
         baseRadius,
         currentMorphProgress,
         projectionMethod,
         projectionScaleMultiplier,
-        rotationAngleX,
-        rotationAngleY,
+        rotMat,
         transitionMode,
       );
-      p5Instance.vertex(posArc.x, posArc.y);
+      ctx.lineTo(posArc.x, posArc.y);
     }
-    p5Instance.endShape();
+    ctx.stroke();
   }
-}
-
-/**
- * シーム線 (lon = ±PI, すなわち x < 0, z = 0) との交点Iを計算するヘルパー
- */
-function computeIntersection(
-  pA: SphericalPoint,
-  pB: SphericalPoint,
-): { lat: number; point3D: [number, number, number] } {
-  const zA = pA.point3D[2];
-  const zB = pB.point3D[2];
-  const t = Math.abs(zB - zA) > 1e-7 ? -zA / (zB - zA) : 0.5;
-  const clampedT = Math.max(0, Math.min(1, t));
-
-  let ix = pA.point3D[0] + clampedT * (pB.point3D[0] - pA.point3D[0]);
-  let iy = pA.point3D[1] + clampedT * (pB.point3D[1] - pA.point3D[1]);
-  const iz = 0; // ちぎり線上なので z は厳密に 0
-
-  const len = Math.sqrt(ix * ix + iy * iy);
-  if (len > 0) {
-    ix /= len;
-    iy /= len;
-  }
-  const lat = Math.asin(Math.max(-1, Math.min(1, iy)));
-  return { lat, point3D: [ix, iy, iz] };
 }
 
 /**
  * サークルパッキング群を深度ソートしてレンダリングする関数
- * ちぎる経線 (Seam: lon = ±PI) を跨ぐ円は自動的に左右に分割して描画する
+ * 事前ジオメトリキャッシュとネイティブパス描画により、見た目を一切変えずに超軽量化
  */
 export function renderPackedCirclesGeometry(
   p5Instance: p5,
@@ -622,26 +544,35 @@ export function renderPackedCirclesGeometry(
     morphTransitionMode = "direct",
   } = options;
 
-  // 深度ソートの計算
+  if (circles.length === 0) return;
+
+  // フレーム共通の回転行列係数を 1 回だけ事前計算 (数十万回の三角関数呼び出しを 0 化)
+  const rotMat: RotationMatrix = {
+    cosX: Math.cos(rotationAngleX),
+    sinX: Math.sin(rotationAngleX),
+    cosY: Math.cos(rotationAngleY),
+    sinY: Math.sin(rotationAngleY),
+    angleX: rotationAngleX,
+    angleY: rotationAngleY,
+  };
+
+  // 高速深度ソートの計算 (三角関数ゼロの積和演算)
   const processedCircles = circles.map((circleItem) => {
-    const centerRotated = applySphereOrientationRotation(
-      circleItem.normalVector,
-      rotationAngleX,
-      rotationAngleY,
-    );
+    const [nx, ny, nz] = circleItem.normalVector;
+    const z1 = -nx * rotMat.sinY + nz * rotMat.cosY;
+    const depthZ = ny * rotMat.sinX + z1 * rotMat.cosX;
     return {
       circleData: circleItem,
-      centerDepth: centerRotated.depthZ,
+      centerDepth: depthZ,
     };
   });
 
-  // 遠い円(depthが小さい)から手前の円(depthが大きい)へと順にソートして描画
+  // 遠い円(depthが小さい)から手前の円(depthが大きい)へと順にソート
   processedCircles.sort(
     (circleA, circleB) => circleA.centerDepth - circleB.centerDepth,
   );
 
-  p5Instance.push();
-  const circleVerticesCount = Math.max(16, circleSegments);
+  const ctx = p5Instance.drawingContext as CanvasRenderingContext2D;
 
   for (
     let circleIndex = 0;
@@ -649,6 +580,13 @@ export function renderPackedCirclesGeometry(
     circleIndex++
   ) {
     const { circleData, centerDepth } = processedCircles[circleIndex];
+
+    // 幾何キャッシュの取得 (未キャッシュなら初回のみ事前生成)
+    const geometry = getCachedCircleGeometry(
+      circleData,
+      circleSegments,
+      domeRings,
+    );
 
     // 深度に応じた輝度と不透明度
     const depthFactor = p5Instance.map(centerDepth, -1.0, 1.0, 0.6, 1.0);
@@ -672,412 +610,114 @@ export function renderPackedCirclesGeometry(
     const primaryColorRgb = circleData.primaryColor;
     const secondaryColorRgb = circleData.secondaryColor;
 
-    p5Instance.fill(
-      primaryColorRgb[0] * depthShading,
-      primaryColorRgb[1] * depthShading,
-      primaryColorRgb[2] * depthShading,
-      circleAlpha,
-    );
+    const r = Math.round(primaryColorRgb[0] * depthShading);
+    const g = Math.round(primaryColorRgb[1] * depthShading);
+    const b = Math.round(primaryColorRgb[2] * depthShading);
+    const a = circleAlpha / 255;
+    ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
 
     if (showStroke) {
-      p5Instance.stroke(
-        secondaryColorRgb[0] * depthShading,
-        secondaryColorRgb[1] * depthShading,
-        secondaryColorRgb[2] * depthShading,
-        Math.min(255, circleAlpha + 35),
-      );
-      p5Instance.strokeWeight(strokeWeight);
-    } else {
-      p5Instance.noStroke();
+      const sr = Math.round(secondaryColorRgb[0] * depthShading);
+      const sg = Math.round(secondaryColorRgb[1] * depthShading);
+      const sb = Math.round(secondaryColorRgb[2] * depthShading);
+      const sa = Math.min(255, circleAlpha + 35) / 255;
+      ctx.strokeStyle = `rgba(${sr},${sg},${sb},${sa})`;
+      ctx.lineWidth = strokeWeight;
     }
 
-    const cosRadius = Math.cos(circleData.angularRadius);
-    const sinRadius = Math.sin(circleData.angularRadius);
-
-    // 円周サンプリング頂点列の生成 (キャッシュテーブル活用)
-    const trigTable = getTrigTable(circleVerticesCount);
-    const rawVertices: SphericalPoint[] = [];
-    for (
-      let vertexIndex = 0;
-      vertexIndex < circleVerticesCount;
-      vertexIndex++
+    // 2. 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）
+    if (
+      geometry.isPolarCap &&
+      geometry.polarArcPoints &&
+      geometry.pole3D &&
+      geometry.poleLat !== undefined
     ) {
-      const cosPerimeter = trigTable.cos[vertexIndex];
-      const sinPerimeter = trigTable.sin[vertexIndex];
-
-      const px =
-        circleData.normalVector[0] * cosRadius +
-        (circleData.basisVectorU[0] * cosPerimeter +
-          circleData.basisVectorV[0] * sinPerimeter) *
-          sinRadius;
-      const py =
-        circleData.normalVector[1] * cosRadius +
-        (circleData.basisVectorU[1] * cosPerimeter +
-          circleData.basisVectorV[1] * sinPerimeter) *
-          sinRadius;
-      const pz =
-        circleData.normalVector[2] * cosRadius +
-        (circleData.basisVectorU[2] * cosPerimeter +
-          circleData.basisVectorV[2] * sinPerimeter) *
-          sinRadius;
-
-      const lon = Math.atan2(pz, px);
-      const lat = Math.asin(Math.max(-1, Math.min(1, py)));
-
-      rawVertices.push({
-        point3D: [px, py, pz],
-        lon,
-        lat,
-      });
-    }
-
-    // 3D球面自転時 (モーフィング <= 1e-4) は、シーム横断や極キャップの分割を行わず、
-    // 全ての円（北極・南極を跨ぐ円、シームを跨ぐ円を含む）を完全な球面ドームメッシュで描画する
-    if (currentMorphProgress <= 1e-4) {
-      if (fitSphericalSurface) {
-        renderSphericalFittedCircle(
-          p5Instance,
-          circleData,
-          rawVertices,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          showStroke,
-          circleVerticesCount,
-          morphTransitionMode,
-          domeRings,
-        );
-      } else {
-        const fillList = [...rawVertices];
-        const arcList = [...rawVertices, rawVertices[0]];
-        renderCirclePiece(
-          p5Instance,
-          fillList,
-          arcList,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          showStroke,
-          false,
-          morphTransitionMode,
-        );
-      }
+      renderPolarCapStripMesh(
+        ctx,
+        geometry.polarArcPoints,
+        geometry.pole3D,
+        geometry.poleLat,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        showStroke,
+        fitSphericalSurface,
+        morphTransitionMode,
+        domeRings,
+      );
       continue;
     }
 
-    // 1. 極点（北極 / 南極）を包含する円（Circumpolar Polar Cap）の検出
-    const normalY = circleData.normalVector[1];
-    const encompassesNorthPole = normalY >= cosRadius - 1e-5;
-    const encompassesSouthPole = normalY <= -cosRadius + 1e-5;
-
-    if (encompassesNorthPole || encompassesSouthPole) {
-      const poleLat = encompassesNorthPole ? Math.PI / 2 : -Math.PI / 2;
-      const pole3D: [number, number, number] = [
-        0,
-        encompassesNorthPole ? 1 : -1,
-        0,
-      ];
-
-      // シーム (lon = ±PI) 横断インデックスの検出
-      let seamIdx = -1;
-      for (let i = 0; i < circleVerticesCount; i++) {
-        const nextIndex = (i + 1) % circleVerticesCount;
-        const lonA = rawVertices[i].lon;
-        const lonB = rawVertices[nextIndex].lon;
-        if (Math.abs(lonB - lonA) > Math.PI) {
-          seamIdx = i;
-          break;
-        }
-      }
-
-      if (seamIdx !== -1) {
-        const pA = rawVertices[seamIdx];
-        const pB = rawVertices[(seamIdx + 1) % circleVerticesCount];
-        const inter = computeIntersection(pA, pB);
-
-        // 円周を seamIdx+1 から seamIdx まで巡る（シームを跨がない一連の頂点列）
-        const interiorPoints: SphericalPoint[] = [];
-        let curr = (seamIdx + 1) % circleVerticesCount;
-        while (curr !== seamIdx) {
-          interiorPoints.push(rawVertices[curr]);
-          curr = (curr + 1) % circleVerticesCount;
-        }
-        interiorPoints.push(rawVertices[seamIdx]);
-
-        // 西(-PI)から東(+PI)へ経度が増加する順序に整列
-        let isIncreasing = true;
-        if (interiorPoints.length >= 2) {
-          const firstLon = interiorPoints[0].lon;
-          const lastLon = interiorPoints[interiorPoints.length - 1].lon;
-          isIncreasing = firstLon < lastLon;
-        }
-
-        const orderedInterior = isIncreasing
-          ? interiorPoints
-          : [...interiorPoints].reverse();
-
-        const interWest: SphericalPoint = {
-          point3D: inter.point3D,
-          lon: -Math.PI,
-          lat: inter.lat,
-        };
-        const interEast: SphericalPoint = {
-          point3D: inter.point3D,
-          lon: Math.PI,
-          lat: inter.lat,
-        };
-
-        const arcPoints = [interWest, ...orderedInterior, interEast];
-
-        // 経線に沿った TRIANGLE_STRIP による極キャップメッシュ描画
-        renderPolarCapStripMesh(
-          p5Instance,
-          arcPoints,
-          pole3D,
-          poleLat,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          showStroke,
-          fitSphericalSurface,
-          morphTransitionMode,
-          domeRings,
-        );
-        continue;
-      }
-    }
-
-    // 2. ちぎり線 (lon = ±PI, すなわち x < 0, z = 0) を跨ぐかどうかの判定 (通常円)
-    const crossingIndices: number[] = [];
-    for (let i = 0; i < circleVerticesCount; i++) {
-      const nextIndex = (i + 1) % circleVerticesCount;
-      const lonA = rawVertices[i].lon;
-      const lonB = rawVertices[nextIndex].lon;
-
-      if (Math.abs(lonB - lonA) > Math.PI) {
-        crossingIndices.push(i);
-      }
-    }
-
-    if (crossingIndices.length !== 2) {
-      // ちぎり線を跨がない通常円: 球面曲面フィットまたは平面ディスクで描画
-      if (fitSphericalSurface) {
-        renderSphericalFittedCircle(
-          p5Instance,
-          circleData,
-          rawVertices,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          showStroke,
-          circleVerticesCount,
-          morphTransitionMode,
-          domeRings,
-        );
-      } else {
-        const fillList = [...rawVertices];
-        const arcList = [...rawVertices, rawVertices[0]];
-        renderCirclePiece(
-          p5Instance,
-          fillList,
-          arcList,
-          baseRadius,
-          currentMorphProgress,
-          projectionMethod,
-          projectionScaleMultiplier,
-          rotationAngleX,
-          rotationAngleY,
-          showStroke,
-          false,
-          morphTransitionMode,
-        );
-      }
+    // 3. ちぎり線 (lon = ±PI) を跨ぐ通常円
+    if (
+      geometry.isSeamCrossing &&
+      geometry.eastFill &&
+      geometry.eastArc &&
+      geometry.westFill &&
+      geometry.westArc
+    ) {
+      // 東側ピース (右端)
+      renderCirclePiece(
+        ctx,
+        geometry.eastFill,
+        geometry.eastArc,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        showStroke,
+        fitSphericalSurface,
+        morphTransitionMode,
+      );
+      // 西側ピース (左端)
+      renderCirclePiece(
+        ctx,
+        geometry.westFill,
+        geometry.westArc,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        showStroke,
+        fitSphericalSurface,
+        morphTransitionMode,
+      );
       continue;
     }
 
-    // ちぎり線を跨ぐ円: 東側 (lon > 0, +PI 側) と 西側 (lon < 0, -PI 側) に分割
-
-    // 交差点情報を収集
-    const idx0 = crossingIndices[0];
-    const idx1 = crossingIndices[1];
-    const inter0 = computeIntersection(
-      rawVertices[idx0],
-      rawVertices[(idx0 + 1) % circleVerticesCount],
-    );
-    const inter1 = computeIntersection(
-      rawVertices[idx1],
-      rawVertices[(idx1 + 1) % circleVerticesCount],
-    );
-
-    // 円周を順次巡って東側・西側の頂点列を構成
-    // idx0 から (idx0+1) への進行方向
-    const goingEastToWest0 = rawVertices[idx0].lon > 0;
-
-    // 区間 1: (idx0+1) から idx1 まで
-    const seg1Vertices: SphericalPoint[] = [];
-    let curr = (idx0 + 1) % circleVerticesCount;
-    while (curr !== (idx1 + 1) % circleVerticesCount) {
-      seg1Vertices.push(rawVertices[curr]);
-      curr = (curr + 1) % circleVerticesCount;
-    }
-
-    // 区間 2: (idx1+1) から idx0 まで
-    const seg2Vertices: SphericalPoint[] = [];
-    curr = (idx1 + 1) % circleVerticesCount;
-    while (curr !== (idx0 + 1) % circleVerticesCount) {
-      seg2Vertices.push(rawVertices[curr]);
-      curr = (curr + 1) % circleVerticesCount;
-    }
-
-    // 東側・西側に分類
-    let eastPoints: SphericalPoint[];
-    let westPoints: SphericalPoint[];
-    let interEastStart: SphericalPoint;
-    let interEastEnd: SphericalPoint;
-    let interWestStart: SphericalPoint;
-    let interWestEnd: SphericalPoint;
-
-    if (goingEastToWest0) {
-      // idx0 は東側、idx0+1 は西側
-      // したがって seg1 は西側、seg2 は東側
-      westPoints = seg1Vertices;
-      eastPoints = seg2Vertices;
-
-      interWestStart = {
-        point3D: inter0.point3D,
-        lon: -Math.PI,
-        lat: inter0.lat,
-      };
-      interWestEnd = {
-        point3D: inter1.point3D,
-        lon: -Math.PI,
-        lat: inter1.lat,
-      };
-
-      interEastStart = {
-        point3D: inter1.point3D,
-        lon: Math.PI,
-        lat: inter1.lat,
-      };
-      interEastEnd = {
-        point3D: inter0.point3D,
-        lon: Math.PI,
-        lat: inter0.lat,
-      };
+    // 4. ちぎり線を跨がない通常円
+    if (fitSphericalSurface) {
+      renderSphericalFittedCircle(
+        ctx,
+        geometry,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        showStroke,
+        morphTransitionMode,
+      );
     } else {
-      // idx0 は西側、idx0+1 は東側
-      // したがって seg1 は東側、seg2 は西側
-      eastPoints = seg1Vertices;
-      westPoints = seg2Vertices;
-
-      interEastStart = {
-        point3D: inter0.point3D,
-        lon: Math.PI,
-        lat: inter0.lat,
-      };
-      interEastEnd = {
-        point3D: inter1.point3D,
-        lon: Math.PI,
-        lat: inter1.lat,
-      };
-
-      interWestStart = {
-        point3D: inter1.point3D,
-        lon: -Math.PI,
-        lat: inter1.lat,
-      };
-      interWestEnd = {
-        point3D: inter0.point3D,
-        lon: -Math.PI,
-        lat: inter0.lat,
-      };
+      const fillList = geometry.rawVertices;
+      const arcList = [...geometry.rawVertices, geometry.rawVertices[0]];
+      renderCirclePiece(
+        ctx,
+        fillList,
+        arcList,
+        baseRadius,
+        currentMorphProgress,
+        projectionMethod,
+        projectionScaleMultiplier,
+        rotMat,
+        showStroke,
+        false,
+        morphTransitionMode,
+      );
     }
-
-    // 切断面（ちぎり境界線に沿った補間点）の生成
-    const seamInterpolationSteps = 4;
-    const createSeamSegment = (
-      startPt: SphericalPoint,
-      endPt: SphericalPoint,
-      targetLon: number,
-    ): SphericalPoint[] => {
-      const seamPoints: SphericalPoint[] = [];
-      for (let s = 1; s < seamInterpolationSteps; s++) {
-        const factor = s / seamInterpolationSteps;
-        const lat = startPt.lat + factor * (endPt.lat - startPt.lat);
-        const px = Math.cos(lat) * Math.cos(targetLon);
-        const py = Math.sin(lat);
-        const pz = 0;
-        seamPoints.push({
-          point3D: [px, py, pz],
-          lon: targetLon,
-          lat,
-        });
-      }
-      return seamPoints;
-    };
-
-    // 1. 東側ピースの構築
-    const eastArcLine = [interEastStart, ...eastPoints, interEastEnd];
-    const eastSeamLine = createSeamSegment(
-      interEastEnd,
-      interEastStart,
-      Math.PI,
-    );
-    const eastFillPolygon = [...eastArcLine, ...eastSeamLine];
-
-    // 2. 西側ピースの構築
-    const westArcLine = [interWestStart, ...westPoints, interWestEnd];
-    const westSeamLine = createSeamSegment(
-      interWestEnd,
-      interWestStart,
-      -Math.PI,
-    );
-    const westFillPolygon = [...westArcLine, ...westSeamLine];
-
-    // 東側ピース（右端）の描画
-    renderCirclePiece(
-      p5Instance,
-      eastFillPolygon,
-      eastArcLine,
-      baseRadius,
-      currentMorphProgress,
-      projectionMethod,
-      projectionScaleMultiplier,
-      rotationAngleX,
-      rotationAngleY,
-      showStroke,
-      fitSphericalSurface,
-      morphTransitionMode,
-    );
-
-    // 西側ピース（左端）の描画
-    renderCirclePiece(
-      p5Instance,
-      westFillPolygon,
-      westArcLine,
-      baseRadius,
-      currentMorphProgress,
-      projectionMethod,
-      projectionScaleMultiplier,
-      rotationAngleX,
-      rotationAngleY,
-      showStroke,
-      fitSphericalSurface,
-      morphTransitionMode,
-    );
   }
-
-  p5Instance.pop();
 }

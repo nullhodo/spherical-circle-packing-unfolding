@@ -46,8 +46,8 @@ export function computeMorphedPoint2D(
     transitionMode = "direct",
   } = params;
 
-  // 最適化: モーフィング 0 (3D自転時) は地図投影計算をスキップ
-  if (currentMorphProgress <= 1e-4) {
+  // 最適化: モーフィング 0 (3D自転時) かつダイレクト遷移は地図投影計算をスキップ
+  if (currentMorphProgress <= 1e-4 && transitionMode === "direct") {
     const rotated = applySphereOrientationRotation(
       point3D,
       rotationAngleX,
