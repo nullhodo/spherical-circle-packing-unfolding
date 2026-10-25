@@ -2,7 +2,7 @@ import type { SphericalCircle } from "../../types/sketch";
 
 export interface SphericalPoint {
   point3D: [number, number, number];
-  lon: number; // -PI 〜 PI
+  lon: number; // -PI 〜 PI (切り分け経線を基準とした相対経度)
   lat: number; // -PI/2 〜 PI/2
 }
 
@@ -21,7 +21,7 @@ export interface CachedCircleGeometry {
   poleLat?: number;
   polarArcPoints?: SphericalPoint[];
 
-  // シーム横断円 (ちぎり線 lon = ±PI を跨ぐ通常円)
+  // シーム横断円 (ちぎり線を跨ぐ通常円)
   isSeamCrossing: boolean;
   eastFill?: SphericalPoint[];
   eastArc?: SphericalPoint[];
@@ -56,25 +56,39 @@ export function getTrigTable(count: number): {
 }
 
 /**
- * シーム線 (lon = ±PI, すなわち x < 0, z = 0) との交点Iを計算するヘルパー
+ * 角度を [-PI, PI] に正規化するヘルパー
  */
-function computeIntersection(
+function normalizeAngle(angle: number): number {
+  let a = angle;
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
+
+/**
+ * 相対シーム線 (relLon = ±PI, すなわち z_rel = 0, x_rel < 0) との交点を計算するヘルパー
+ */
+function computeIntersectionRel(
   pA: SphericalPoint,
   pB: SphericalPoint,
+  relA: SphericalPoint,
+  relB: SphericalPoint,
 ): { lat: number; point3D: [number, number, number] } {
-  const zA = pA.point3D[2];
-  const zB = pB.point3D[2];
+  const zA = relA.point3D[2];
+  const zB = relB.point3D[2];
   const t = Math.abs(zB - zA) > 1e-7 ? -zA / (zB - zA) : 0.5;
   const clampedT = Math.max(0, Math.min(1, t));
 
+  // 実空間 3D 座標の補間
   let ix = pA.point3D[0] + clampedT * (pB.point3D[0] - pA.point3D[0]);
   let iy = pA.point3D[1] + clampedT * (pB.point3D[1] - pA.point3D[1]);
-  const iz = 0; // ちぎり線上なので z は厳密に 0
+  let iz = pA.point3D[2] + clampedT * (pB.point3D[2] - pA.point3D[2]);
 
-  const len = Math.sqrt(ix * ix + iy * iy);
+  const len = Math.hypot(ix, iy, iz);
   if (len > 0) {
     ix /= len;
     iy /= len;
+    iz /= len;
   }
   const lat = Math.asin(Math.max(-1, Math.min(1, iy)));
   return { lat, point3D: [ix, iy, iz] };
@@ -90,15 +104,17 @@ const CIRCLE_GEOMETRY_CACHE = new WeakMap<
 
 /**
  * サークルパッキング円の幾何メッシュデータを事前生成・キャッシュする関数
- * パッキングが変わらない限り、毎フレームの逆三角関数や交差点探索などの重い計算をゼロコスト化
+ * @param seamLongitude 切り分け経線角度 (-PI 〜 PI、デフォルト: PI = 180度)
  */
 export function getCachedCircleGeometry(
   circleData: SphericalCircle,
   circleSegments: number,
   domeRings = 4,
+  seamLongitude = Math.PI,
 ): CachedCircleGeometry {
   const count = Math.max(16, circleSegments);
-  const cacheKey = `${count}_${domeRings}`;
+  const seamDeg = Math.round((seamLongitude * 180) / Math.PI);
+  const cacheKey = `${count}_${domeRings}_${seamDeg}`;
 
   let circleMap = CIRCLE_GEOMETRY_CACHE.get(circleData);
   if (!circleMap) {
@@ -111,13 +127,24 @@ export function getCachedCircleGeometry(
     return cached;
   }
 
+  // === 切り分け経線に基づく相対座標系の係数 ===
+  // seamLongitude がちぎり線 (relLon = ±PI) になり、
+  // centralMeridian (seamLongitude - PI) が展開図の中央 (relLon = 0) になる
+  const centralMeridian =
+    seamLongitude > 0 ? seamLongitude - Math.PI : seamLongitude + Math.PI;
+  const phi = seamLongitude - Math.PI; // 相対座標系への Y軸回転角
+  const cosPhi = Math.cos(phi);
+  const sinPhi = Math.sin(phi);
+
   // === 幾何メッシュの事前生成 ===
   const cosRadius = Math.cos(circleData.angularRadius);
   const sinRadius = Math.sin(circleData.angularRadius);
   const trigTable = getTrigTable(count);
 
-  // 1. 外周頂点列 (rawVertices)
+  // 1. 外周頂点列 (rawVertices) および相対座標 (relVertices)
   const rawVertices: SphericalPoint[] = [];
+  const relVertices: SphericalPoint[] = [];
+
   for (let vertexIndex = 0; vertexIndex < count; vertexIndex++) {
     const cosPerimeter = trigTable.cos[vertexIndex];
     const sinPerimeter = trigTable.sin[vertexIndex];
@@ -138,12 +165,24 @@ export function getCachedCircleGeometry(
         circleData.basisVectorV[2] * sinPerimeter) *
         sinRadius;
 
-    const lon = Math.atan2(pz, px);
+    const origLon = Math.atan2(pz, px);
     const lat = Math.asin(Math.max(-1, Math.min(1, py)));
+    const relLon = normalizeAngle(origLon - centralMeridian);
+
+    // 相対 3D 座標: Y軸周りに -phi 回転
+    const rx = px * cosPhi + pz * sinPhi;
+    const ry = py;
+    const rz = -px * sinPhi + pz * cosPhi;
 
     rawVertices.push({
       point3D: [px, py, pz],
-      lon,
+      lon: relLon,
+      lat,
+    });
+
+    relVertices.push({
+      point3D: [rx, ry, rz],
+      lon: relLon,
       lat,
     });
   }
@@ -186,12 +225,13 @@ export function getCachedCircleGeometry(
             circleData.basisVectorV[2] * sinP) *
             sinRingRad;
 
-        const lon = Math.atan2(pz, px);
+        const origLon = Math.atan2(pz, px);
         const lat = Math.asin(Math.max(-1, Math.min(1, py)));
+        const relLon = normalizeAngle(origLon - centralMeridian);
 
         ringPoints.push({
           point3D: [px, py, pz],
-          lon,
+          lon: relLon,
           lat,
         });
       }
@@ -213,12 +253,12 @@ export function getCachedCircleGeometry(
     poleLat = encompassesNorthPole ? Math.PI / 2 : -Math.PI / 2;
     pole3D = [0, encompassesNorthPole ? 1 : -1, 0];
 
-    // シーム (lon = ±PI) 横断インデックスの検出
+    // 相対シーム (relLon = ±PI) 横断インデックスの検出
     let seamIdx = -1;
     for (let i = 0; i < count; i++) {
       const nextIndex = (i + 1) % count;
-      const lonA = rawVertices[i].lon;
-      const lonB = rawVertices[nextIndex].lon;
+      const lonA = relVertices[i].lon;
+      const lonB = relVertices[nextIndex].lon;
       if (Math.abs(lonB - lonA) > Math.PI) {
         seamIdx = i;
         break;
@@ -228,7 +268,9 @@ export function getCachedCircleGeometry(
     if (seamIdx !== -1) {
       const pA = rawVertices[seamIdx];
       const pB = rawVertices[(seamIdx + 1) % count];
-      const inter = computeIntersection(pA, pB);
+      const relA = relVertices[seamIdx];
+      const relB = relVertices[(seamIdx + 1) % count];
+      const inter = computeIntersectionRel(pA, pB, relA, relB);
 
       const interiorPoints: SphericalPoint[] = [];
       let curr = (seamIdx + 1) % count;
@@ -265,7 +307,7 @@ export function getCachedCircleGeometry(
     }
   }
 
-  // 4. ちぎり線 (lon = ±PI) を跨ぐかどうかの判定 (通常円)
+  // 4. ちぎり線 (relLon = ±PI) を跨ぐかどうかの判定 (通常円)
   let isSeamCrossing = false;
   let eastFill: SphericalPoint[] | undefined;
   let eastArc: SphericalPoint[] | undefined;
@@ -276,8 +318,8 @@ export function getCachedCircleGeometry(
     const crossingIndices: number[] = [];
     for (let i = 0; i < count; i++) {
       const nextIndex = (i + 1) % count;
-      const lonA = rawVertices[i].lon;
-      const lonB = rawVertices[nextIndex].lon;
+      const lonA = relVertices[i].lon;
+      const lonB = relVertices[nextIndex].lon;
 
       if (Math.abs(lonB - lonA) > Math.PI) {
         crossingIndices.push(i);
@@ -287,16 +329,20 @@ export function getCachedCircleGeometry(
     if (crossingIndices.length === 2) {
       const idx0 = crossingIndices[0];
       const idx1 = crossingIndices[1];
-      const inter0 = computeIntersection(
+      const inter0 = computeIntersectionRel(
         rawVertices[idx0],
         rawVertices[(idx0 + 1) % count],
+        relVertices[idx0],
+        relVertices[(idx0 + 1) % count],
       );
-      const inter1 = computeIntersection(
+      const inter1 = computeIntersectionRel(
         rawVertices[idx1],
         rawVertices[(idx1 + 1) % count],
+        relVertices[idx1],
+        relVertices[(idx1 + 1) % count],
       );
 
-      const goingEastToWest0 = rawVertices[idx0].lon > 0;
+      const goingEastToWest0 = relVertices[idx0].lon > 0;
 
       const seg1Vertices: SphericalPoint[] = [];
       let curr = (idx0 + 1) % count;
@@ -381,9 +427,17 @@ export function getCachedCircleGeometry(
         for (let s = 1; s < seamInterpolationSteps; s++) {
           const factor = s / seamInterpolationSteps;
           const lat = startPt.lat + factor * (endPt.lat - startPt.lat);
-          const px = Math.cos(lat) * Math.cos(targetLon);
-          const py = Math.sin(lat);
-          const pz = 0;
+
+          // 相対座標系でのちぎり線上の点
+          const rx = Math.cos(lat) * Math.cos(targetLon);
+          const ry = Math.sin(lat);
+          const rz = 0;
+
+          // 実空間 3D 座標に戻す: Y軸周りに +phi 回転
+          const px = rx * cosPhi - rz * sinPhi;
+          const py = ry;
+          const pz = rx * sinPhi + rz * cosPhi;
+
           seamPoints.push({
             point3D: [px, py, pz],
             lon: targetLon,
@@ -415,6 +469,10 @@ export function getCachedCircleGeometry(
     }
   }
 
+  const centerRelLon = normalizeAngle(
+    circleData.longitude - centralMeridian,
+  );
+
   const geometry: CachedCircleGeometry = {
     circle: circleData,
     circleVerticesCount: count,
@@ -423,7 +481,7 @@ export function getCachedCircleGeometry(
     rawVertices,
     domeRingsVertices,
     centerLonLat: {
-      lon: circleData.longitude,
+      lon: centerRelLon,
       lat: circleData.latitude,
     },
     isPolarCap,

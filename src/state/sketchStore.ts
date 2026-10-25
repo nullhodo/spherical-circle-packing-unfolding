@@ -34,6 +34,8 @@ const initialParams: SketchParams = {
   showGrid: true,
   activePaletteIndex: defaultPaletteIndex,
   isExclusiveBackground: true,
+  seamLongitude: Math.PI,
+  randomizeSeamOnLoop: false,
   showFilmGrain: true,
   isDebugMode: false,
 };
@@ -54,6 +56,7 @@ export const randomTargetsAtom = atom<RandomTargets>({
   projectionMethod: true,
   morphTransitionMode: false,
   projectionScale: false,
+  seamLongitude: true,
   rotationSpeed: false,
   morphSpeed: false,
   maxCircles: true,

@@ -1,9 +1,12 @@
 import { useAtom } from "jotai";
 import {
   ActivityIcon,
+  DicesIcon,
   GlobeIcon,
   PlayIcon,
   RotateCwIcon,
+  ScissorsIcon,
+  ShuffleIcon,
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useRef } from "react";
@@ -208,6 +211,88 @@ export const ProjectionSection: React.FC<Props> = ({ onParamChange }) => {
           }
           className="w-full accent-emerald-600 bg-gray-200/80 rounded h-1.5 cursor-pointer"
         />
+      </div>
+
+      {/* 切り分け経線 (Seam Meridian) & 毎回ランダム */}
+      <div className="space-y-2 pt-2 border-t border-gray-200/60">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] text-gray-700 font-semibold flex items-center gap-1.5">
+            <ScissorsIcon className="w-3.5 h-3.5 text-rose-500" />
+            切り分け経線 (ちぎり線)
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              title="ランダムな角度に変更"
+              onClick={() => {
+                const randDeg = Math.round(Math.random() * 360 - 180);
+                onParamChange("seamLongitude", (randDeg * Math.PI) / 180);
+              }}
+              className="p-1 rounded text-gray-600 hover:text-gray-900 hover:bg-gray-200/80 cursor-pointer transition shadow-2xs text-[10px] flex items-center gap-0.5 border border-gray-200"
+            >
+              <DicesIcon className="w-3 h-3 text-emerald-600" />
+              <span>ランダム</span>
+            </button>
+            <button
+              type="button"
+              title="背中 (180°) にリセット"
+              onClick={() => onParamChange("seamLongitude", Math.PI)}
+              className="px-1.5 py-0.5 rounded text-gray-600 hover:text-gray-900 hover:bg-gray-200/80 cursor-pointer transition shadow-2xs text-[10px] border border-gray-200"
+            >
+              180°
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-[11px] text-gray-600 font-medium">
+            <span>展開シーム位置</span>
+            <span className="font-mono text-gray-900 font-semibold">
+              {Math.round((params.seamLongitude * 180) / Math.PI)}°
+            </span>
+          </div>
+          <input
+            type="range"
+            min="-180"
+            max="180"
+            step="1"
+            value={Math.round((params.seamLongitude * 180) / Math.PI)}
+            onChange={(e) => {
+              const deg = Number.parseFloat(e.target.value);
+              onParamChange("seamLongitude", (deg * Math.PI) / 180);
+            }}
+            className="w-full accent-rose-500 bg-gray-200/80 rounded h-1.5 cursor-pointer"
+          />
+          <div className="flex justify-between text-[10px] text-gray-500">
+            <span>-180° (西)</span>
+            <span>0° (正面)</span>
+            <span>+180° (東)</span>
+          </div>
+        </div>
+
+        {/* 毎回切り分ける経線をランダムにするトグルオプション */}
+        <div className="flex items-center justify-between p-2 rounded-md bg-rose-50/50 border border-rose-200/60">
+          <div className="space-y-0.5">
+            <span className="text-[11px] text-gray-800 font-medium flex items-center gap-1">
+              <ShuffleIcon className="w-3 h-3 text-rose-500" />
+              毎回切り分け経線をランダム化
+            </span>
+            <p className="text-[9.5px] text-gray-500 leading-tight">
+              展開サイクル（モーフィング0.00）ごとに新しい経線を自動選定
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer select-none ml-2 shrink-0">
+            <input
+              type="checkbox"
+              checked={params.randomizeSeamOnLoop}
+              onChange={(e) =>
+                onParamChange("randomizeSeamOnLoop", e.target.checked)
+              }
+              className="sr-only peer"
+            />
+            <div className="w-8 h-4.5 bg-gray-200/80 border border-gray-300/80 rounded-full peer peer-checked:bg-rose-500 peer-checked:border-rose-600 transition-colors after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-transform peer-checked:after:translate-x-3.5 shadow-2xs" />
+          </label>
+        </div>
       </div>
 
       {/* 自動モーフィング & 回転速度 */}

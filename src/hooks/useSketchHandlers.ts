@@ -461,6 +461,18 @@ export function useSketchHandlers() {
       );
     }
 
+    if (randomTargets.seamLongitude) {
+      let randSeam = (Math.random() * 2 - 1) * Math.PI;
+      if (
+        Math.abs(randSeam - paramsRef.current.seamLongitude) <
+        Math.PI / 6
+      ) {
+        randSeam =
+          randSeam > 0 ? randSeam - Math.PI / 2 : randSeam + Math.PI / 2;
+      }
+      nextUpdates.seamLongitude = Number.parseFloat(randSeam.toFixed(4));
+    }
+
     if (randomTargets.rotationSpeed) {
       nextUpdates.rotationSpeed = Number.parseFloat(
         (Math.random() * 2.0 + 0.5).toFixed(1),

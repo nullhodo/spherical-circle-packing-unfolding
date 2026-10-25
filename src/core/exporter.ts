@@ -64,6 +64,7 @@ export function exportHighResolutionImage(
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: false,
           gridLayerMode: params.gridLayerMode,
+          seamLongitude: params.seamLongitude,
         });
       }
 
@@ -81,6 +82,7 @@ export function exportHighResolutionImage(
         circleSegments: params.circleSegments,
         fitSphericalSurface: params.fitSphericalSurface,
         domeRings: params.domeRings,
+        seamLongitude: params.seamLongitude,
       });
 
       if (params.showGrid) {
@@ -96,6 +98,7 @@ export function exportHighResolutionImage(
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: true,
           gridLayerMode: params.gridLayerMode,
+          seamLongitude: params.seamLongitude,
         });
       }
 
@@ -185,6 +188,7 @@ export function exportSvgGraphics(
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: false,
           gridLayerMode: params.gridLayerMode,
+          seamLongitude: params.seamLongitude,
         });
       }
 
@@ -202,6 +206,7 @@ export function exportSvgGraphics(
         circleSegments: params.circleSegments,
         fitSphericalSurface: params.fitSphericalSurface,
         domeRings: params.domeRings,
+        seamLongitude: params.seamLongitude,
       });
 
       if (params.showGrid) {
@@ -217,6 +222,7 @@ export function exportSvgGraphics(
           isExclusiveBackground: params.isExclusiveBackground,
           isFrontLayer: true,
           gridLayerMode: params.gridLayerMode,
+          seamLongitude: params.seamLongitude,
         });
       }
 

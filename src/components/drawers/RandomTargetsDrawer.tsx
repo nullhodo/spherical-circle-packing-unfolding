@@ -42,6 +42,7 @@ export const RandomTargetsDrawer: React.FC = () => {
       projectionMethod: enable,
       morphTransitionMode: enable,
       projectionScale: enable,
+      seamLongitude: enable,
       rotationSpeed: enable,
       morphSpeed: enable,
       maxCircles: enable,
@@ -85,6 +86,11 @@ export const RandomTargetsDrawer: React.FC = () => {
           key: "projectionScale",
           label: "展開後スケール倍率",
           desc: "展開後の拡大率 (0.5〜2.5x)",
+        },
+        {
+          key: "seamLongitude",
+          label: "切り分け経線 (ちぎり線)",
+          desc: "展開時に切り開く経線の角度 (-180°〜180°)",
         },
         {
           key: "rotationSpeed",

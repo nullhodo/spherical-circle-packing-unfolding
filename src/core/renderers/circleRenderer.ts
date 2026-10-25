@@ -25,6 +25,7 @@ interface CircleRenderOptions {
   circleSegments?: number;
   fitSphericalSurface?: boolean;
   domeRings?: number;
+  seamLongitude?: number;
 }
 
 interface RotationMatrix {
@@ -554,6 +555,7 @@ export function renderPackedCirclesGeometry(
     circleSegments = 64,
     fitSphericalSurface = true,
     domeRings = 4,
+    seamLongitude = Math.PI,
     morphTransitionMode = "direct",
   } = options;
 
@@ -599,6 +601,7 @@ export function renderPackedCirclesGeometry(
       circleData,
       circleSegments,
       domeRings,
+      seamLongitude,
     );
 
     // 深度に応じた輝度と不透明度

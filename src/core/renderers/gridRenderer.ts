@@ -19,6 +19,7 @@ interface GridRenderOptions {
   isExclusiveBackground: boolean;
   isFrontLayer?: boolean;
   gridLayerMode?: GridLayerMode;
+  seamLongitude?: number;
 }
 
 interface ProjectedSamplePoint {
@@ -40,16 +41,31 @@ interface StaticGridLine {
   samples: StaticGridSample[];
 }
 
-let CACHED_GRID_LINES: {
-  parallels: StaticGridLine[];
-  meridians: StaticGridLine[];
-} | null = null;
+function normalizeAngle(angle: number): number {
+  let a = angle;
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
 
-function getStaticGridLines(): {
+const CACHED_GRID_MAP = new Map<
+  number,
+  {
+    parallels: StaticGridLine[];
+    meridians: StaticGridLine[];
+  }
+>();
+
+function getStaticGridLines(seamLongitude = Math.PI): {
   parallels: StaticGridLine[];
   meridians: StaticGridLine[];
 } {
-  if (CACHED_GRID_LINES) return CACHED_GRID_LINES;
+  const seamDeg = Math.round((seamLongitude * 180) / Math.PI);
+  const cached = CACHED_GRID_MAP.get(seamDeg);
+  if (cached) return cached;
+
+  const centralMeridian =
+    seamLongitude > 0 ? seamLongitude - Math.PI : seamLongitude + Math.PI;
 
   const latitudeSteps = 12;
   const longitudeSteps = 24;
@@ -64,24 +80,27 @@ function getStaticGridLines(): {
     const samples: StaticGridSample[] = [];
 
     for (let step = 0; step <= segmentResolution; step++) {
-      const lon = -Math.PI + (step / segmentResolution) * Math.PI * 2;
-      const px = cosLat * Math.cos(lon);
+      const relLon = -Math.PI + (step / segmentResolution) * Math.PI * 2;
+      const origLon = normalizeAngle(centralMeridian + relLon);
+      const px = cosLat * Math.cos(origLon);
       const py = sinLat;
-      const pz = cosLat * Math.sin(lon);
-      samples.push({ point3D: [px, py, pz], lon, lat });
+      const pz = cosLat * Math.sin(origLon);
+      samples.push({ point3D: [px, py, pz], lon: relLon, lat });
     }
     parallels.push({ isKeyLine: isEquator, samples });
   }
 
   const meridians: StaticGridLine[] = [];
   for (let lonIdx = 0; lonIdx <= longitudeSteps; lonIdx++) {
-    const lon = -Math.PI + (lonIdx / longitudeSteps) * Math.PI * 2;
+    const relLon = -Math.PI + (lonIdx / longitudeSteps) * Math.PI * 2;
+    const origLon = normalizeAngle(centralMeridian + relLon);
     const isSeamBorder = lonIdx === 0 || lonIdx === longitudeSteps;
     const isPrimeMeridian =
-      Math.abs(lon) < 0.05 || Math.abs(Math.abs(lon) - Math.PI) < 0.05;
+      Math.abs(origLon) < 0.05 ||
+      Math.abs(Math.abs(origLon) - Math.PI) < 0.05;
     const isKeyLine = isPrimeMeridian || isSeamBorder;
-    const cosLon = Math.cos(lon);
-    const sinLon = Math.sin(lon);
+    const cosLon = Math.cos(origLon);
+    const sinLon = Math.sin(origLon);
     const samples: StaticGridSample[] = [];
 
     for (let step = 0; step <= segmentResolution; step++) {
@@ -90,13 +109,14 @@ function getStaticGridLines(): {
       const py = Math.sin(lat);
       const px = cosLat * cosLon;
       const pz = cosLat * sinLon;
-      samples.push({ point3D: [px, py, pz], lon, lat });
+      samples.push({ point3D: [px, py, pz], lon: relLon, lat });
     }
     meridians.push({ isKeyLine, samples });
   }
 
-  CACHED_GRID_LINES = { parallels, meridians };
-  return CACHED_GRID_LINES;
+  const result = { parallels, meridians };
+  CACHED_GRID_MAP.set(seamDeg, result);
+  return result;
 }
 
 /**
@@ -205,7 +225,11 @@ export function renderGraticuleGridLines(
     isFrontLayer = true,
     gridLayerMode = "underlay",
     morphTransitionMode = "direct",
+    seamLongitude = Math.PI,
   } = options;
+
+  const centralMeridian =
+    seamLongitude > 0 ? seamLongitude - Math.PI : seamLongitude + Math.PI;
 
   const isUnderlay = gridLayerMode === "underlay";
 
@@ -255,10 +279,11 @@ export function renderGraticuleGridLines(
   const effectiveSphereRadius = baseRadius * (1 + radiusBias);
 
   const samplePoint = (lon: number, lat: number): ProjectedSamplePoint => {
+    const origLon = normalizeAngle(centralMeridian + lon);
     const cosLat = Math.cos(lat);
-    const px = cosLat * Math.cos(lon);
+    const px = cosLat * Math.cos(origLon);
     const py = Math.sin(lat);
-    const pz = cosLat * Math.sin(lon);
+    const pz = cosLat * Math.sin(origLon);
 
     const res = computeMorphedPoint2D({
       point3D: [px, py, pz],
@@ -283,7 +308,7 @@ export function renderGraticuleGridLines(
   };
 
   const ctx = p5Instance.drawingContext as CanvasRenderingContext2D;
-  const { parallels, meridians } = getStaticGridLines();
+  const { parallels, meridians } = getStaticGridLines(seamLongitude);
 
   // 1. 緯線（Parallels）
   for (let i = 0; i < parallels.length; i++) {

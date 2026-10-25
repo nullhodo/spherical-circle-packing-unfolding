@@ -57,6 +57,8 @@ export interface SketchParams {
   showGrid: boolean;
   activePaletteIndex: number;
   isExclusiveBackground: boolean;
+  seamLongitude: number; // 切り分け経線 (-PI 〜 PI)
+  randomizeSeamOnLoop: boolean; // ループごとに切り分け経線をランダムにするか
   showFilmGrain: boolean;
   isDebugMode: boolean;
 }
@@ -67,6 +69,7 @@ export interface RandomTargets {
   projectionMethod: boolean;
   morphTransitionMode: boolean;
   projectionScale: boolean;
+  seamLongitude: boolean;
   rotationSpeed: boolean;
   morphSpeed: boolean;
   maxCircles: boolean;

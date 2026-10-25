@@ -41,7 +41,7 @@ if (import.meta.env.DEV && !document.title.startsWith("[DEV]")) {
 }
 
 const App: React.FC = () => {
-  const [params] = useAtom(sketchParamsAtom);
+  const [params, setParams] = useAtom(sketchParamsAtom);
   const [activePalette] = useAtom(activePaletteAtom);
   const [circles] = useAtom(circlesAtom);
   const [, setRecordingState] = useAtom(recordingStateAtom);
@@ -55,6 +55,7 @@ const App: React.FC = () => {
   const recorderRef = useRef<VideoRecorderManager | null>(null);
 
   const paramsRef = useRef(params);
+  const setParamsRef = useRef(setParams);
   const activePaletteRef = useRef(activePalette);
   const circlesRef = useRef(circles);
   const isAutoCycleRef = useRef(isAutoCycle);
@@ -86,12 +87,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     paramsRef.current = params;
+    setParamsRef.current = setParams;
     if (!params.isAutoMorph) {
       morphPhaseAngleRef.current = Math.acos(
         Math.max(-1, Math.min(1, 1 - 2 * params.morphProgress)),
       );
     }
-  }, [params]);
+  }, [params, setParams]);
 
   useEffect(() => {
     activePaletteRef.current = activePalette;
@@ -383,7 +385,32 @@ const App: React.FC = () => {
 
         // Auto morphing sine animation
         if (currentParams.isAutoMorph) {
+          const prevAngle = morphPhaseAngleRef.current;
           morphPhaseAngleRef.current += 0.01 * currentParams.morphSpeed;
+          const nextAngle = morphPhaseAngleRef.current;
+
+          // ループ境界 (0.00到達 = 新しい展開サイクルの開始) の検知
+          const prevCycle = Math.floor(prevAngle / (Math.PI * 2));
+          const nextCycle = Math.floor(nextAngle / (Math.PI * 2));
+          if (nextCycle > prevCycle && currentParams.randomizeSeamOnLoop) {
+            let newSeam = (Math.random() * 2 - 1) * Math.PI;
+            if (
+              Math.abs(newSeam - currentParams.seamLongitude) <
+              Math.PI / 6
+            ) {
+              newSeam =
+                newSeam > 0
+                  ? newSeam - Math.PI / 2
+                  : newSeam + Math.PI / 2;
+            }
+            newSeam = Number.parseFloat(newSeam.toFixed(4));
+            currentParams.seamLongitude = newSeam;
+            setParamsRef.current((prev) => ({
+              ...prev,
+              seamLongitude: newSeam,
+            }));
+          }
+
           const nextMorph =
             0.5 - 0.5 * Math.cos(morphPhaseAngleRef.current);
           currentParams.morphProgress = nextMorph;
@@ -426,6 +453,7 @@ const App: React.FC = () => {
             isExclusiveBackground: currentParams.isExclusiveBackground,
             isFrontLayer: false,
             gridLayerMode: currentParams.gridLayerMode,
+            seamLongitude: currentParams.seamLongitude,
           });
         }
 
@@ -444,6 +472,7 @@ const App: React.FC = () => {
           circleSegments: currentParams.circleSegments,
           fitSphericalSurface: currentParams.fitSphericalSurface,
           domeRings: currentParams.domeRings,
+          seamLongitude: currentParams.seamLongitude,
         });
 
         // Front layer graticule grid lines
@@ -460,6 +489,7 @@ const App: React.FC = () => {
             isExclusiveBackground: currentParams.isExclusiveBackground,
             isFrontLayer: true,
             gridLayerMode: currentParams.gridLayerMode,
+            seamLongitude: currentParams.seamLongitude,
           });
         }
 
