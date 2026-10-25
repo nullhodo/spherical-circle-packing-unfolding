@@ -10,6 +10,9 @@ export class VideoRecorderManager {
   private videoEncoder: VideoEncoder | null = null;
   private recordingStartTimestamp = 0;
   private frameCounter = 0;
+  private encoderWidth = 800;
+  private encoderHeight = 600;
+  private isEncoderErrored = false;
 
   // Fallback MediaRecorder properties
   private mediaRecorder: MediaRecorder | null = null;
@@ -36,12 +39,15 @@ export class VideoRecorderManager {
   public async startRecording(): Promise<boolean> {
     if (this.isRecording || !this.canvasElement) return false;
 
+    this.isEncoderErrored = false;
     const width = this.canvasElement.width || 800;
     const height = this.canvasElement.height || 600;
 
     // Even dimensions requirement for H.264
     const roundedWidth = width % 2 === 0 ? width : width - 1;
     const roundedHeight = height % 2 === 0 ? height : height - 1;
+    this.encoderWidth = roundedWidth;
+    this.encoderHeight = roundedHeight;
 
     // Check WebCodecs VideoEncoder support
     if (typeof VideoEncoder !== "undefined") {
@@ -67,34 +73,58 @@ export class VideoRecorderManager {
               console.error("[mp4-muxer addVideoChunk error]", err);
             }
           },
-          error: (e) => console.error("[mp4-muxer Encoder Error]", e),
+          error: (e) => {
+            console.error("[mp4-muxer Encoder Error]", e);
+            this.isEncoderErrored = true;
+          },
         });
 
-        // Use H.264 High Profile Level 5.1 (avc1.640033) or Baseline Level 5.1 (avc1.420033)
-        const codecString = "avc1.640033";
-        const encoderConfig: VideoEncoderConfig = {
-          codec: codecString,
-          width: roundedWidth,
-          height: roundedHeight,
-          bitrate: 15_000_000,
-          framerate: 60,
-          hardwareAcceleration: "prefer-hardware",
-        };
-
-        const support =
-          await VideoEncoder.isConfigSupported(encoderConfig);
-        if (support.supported && support.config) {
-          await this.videoEncoder.configure(support.config);
-        } else {
-          await this.videoEncoder.configure({
-            codec: "avc1.420033",
+        // 互換性の高い順にコーデック候補を検証 (Baseline 5.1 -> Main 5.1 -> High 5.1)
+        const candidateConfigs: VideoEncoderConfig[] = [
+          {
+            codec: "avc1.420033", // Baseline Profile Level 5.1 (最も安全・高互換)
             width: roundedWidth,
             height: roundedHeight,
             bitrate: 15_000_000,
             framerate: 60,
-            hardwareAcceleration: "prefer-hardware",
-          });
+            hardwareAcceleration: "no-preference",
+          },
+          {
+            codec: "avc1.4d0033", // Main Profile Level 5.1
+            width: roundedWidth,
+            height: roundedHeight,
+            bitrate: 15_000_000,
+            framerate: 60,
+            hardwareAcceleration: "no-preference",
+          },
+          {
+            codec: "avc1.640033", // High Profile Level 5.1
+            width: roundedWidth,
+            height: roundedHeight,
+            bitrate: 15_000_000,
+            framerate: 60,
+            hardwareAcceleration: "no-preference",
+          },
+        ];
+
+        let chosenConfig: VideoEncoderConfig | null = null;
+        for (const cfg of candidateConfigs) {
+          try {
+            const support = await VideoEncoder.isConfigSupported(cfg);
+            if (support.supported && support.config) {
+              chosenConfig = support.config;
+              break;
+            }
+          } catch {
+            // 次の候補を試す
+          }
         }
+
+        if (!chosenConfig) {
+          chosenConfig = candidateConfigs[0];
+        }
+
+        await this.videoEncoder.configure(chosenConfig);
 
         this.isRecording = true;
         this.recordingStartTimestamp = performance.now();
@@ -158,7 +188,16 @@ export class VideoRecorderManager {
    * 独立したタイマーや RAF の遅延・フレーム間引きを排除し、完全な固定 60fps タイムステップでエンコードする。
    */
   public recordCurrentFrame(): void {
-    if (!this.isRecording || !this.canvasElement || !this.videoEncoder) {
+    if (
+      !this.isRecording ||
+      !this.canvasElement ||
+      !this.videoEncoder ||
+      this.isEncoderErrored
+    ) {
+      return;
+    }
+
+    if (this.videoEncoder.state !== "configured") {
       return;
     }
 
@@ -167,23 +206,37 @@ export class VideoRecorderManager {
       return;
     }
 
-    try {
-      // 完全な固定 60fps (16666.666μs 刻み) の決定論的タイムスタンプ
-      const frameTimestampMicroseconds = Math.round(
-        (this.frameCounter * 1_000_000) / 60,
-      );
-      const keyFrame = this.frameCounter % 60 === 0;
+    const frameTimestampMicroseconds = Math.round(
+      (this.frameCounter * 1_000_000) / 60,
+    );
+    const keyFrame = this.frameCounter % 60 === 0;
 
-      const videoFrame = new VideoFrame(this.canvasElement, {
+    let videoFrame: VideoFrame | null = null;
+    try {
+      videoFrame = new VideoFrame(this.canvasElement, {
         timestamp: frameTimestampMicroseconds,
+        visibleRect: {
+          x: 0,
+          y: 0,
+          width: this.encoderWidth,
+          height: this.encoderHeight,
+        },
+        displayWidth: this.encoderWidth,
+        displayHeight: this.encoderHeight,
       });
 
       this.videoEncoder.encode(videoFrame, { keyFrame });
-      videoFrame.close();
-
       this.frameCounter++;
     } catch (e) {
       console.error("[mp4-muxer] Error encoding frame:", e);
+    } finally {
+      if (videoFrame) {
+        try {
+          videoFrame.close();
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 
@@ -195,29 +248,31 @@ export class VideoRecorderManager {
     this.isRecording = false;
     this.stopTimer();
 
-    if (this.videoEncoder && this.muxer) {
+    if (this.videoEncoder && this.muxer && !this.isEncoderErrored) {
       try {
-        console.log(
-          "[mp4-muxer] Flushing VideoEncoder and finalizing MP4...",
-        );
-        await this.videoEncoder.flush();
-        this.muxer.finalize();
+        if (this.videoEncoder.state === "configured") {
+          console.log(
+            "[mp4-muxer] Flushing VideoEncoder and finalizing MP4...",
+          );
+          await this.videoEncoder.flush();
+          this.muxer.finalize();
 
-        const { buffer } = this.muxer.target;
-        const blob = new Blob([buffer], { type: "video/mp4" });
-        const timestampString = getFormattedDate();
-        const filename =
-          customFilename ||
-          `spherical-packing_${timestampString}_video.mp4`;
+          const { buffer } = this.muxer.target;
+          const blob = new Blob([buffer], { type: "video/mp4" });
+          const timestampString = getFormattedDate();
+          const filename =
+            customFilename ||
+            `spherical-packing_${timestampString}_video.mp4`;
 
-        const downloadLink = document.createElement("a");
-        downloadLink.href = URL.createObjectURL(blob);
-        downloadLink.download = filename;
-        downloadLink.click();
-        setTimeout(() => URL.revokeObjectURL(downloadLink.href), 1000);
+          const downloadLink = document.createElement("a");
+          downloadLink.href = URL.createObjectURL(blob);
+          downloadLink.download = filename;
+          downloadLink.click();
+          setTimeout(() => URL.revokeObjectURL(downloadLink.href), 1000);
 
-        console.log(`[mp4-muxer] Saved MP4 file: ${filename}`);
-        return filename;
+          console.log(`[mp4-muxer] Saved MP4 file: ${filename}`);
+          return filename;
+        }
       } catch (err) {
         console.error("[mp4-muxer finalize error]", err);
       } finally {

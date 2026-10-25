@@ -319,8 +319,10 @@ const App: React.FC = () => {
     const sketch = (p: p5) => {
       p.setup = () => {
         const container = p5ContainerRef.current;
-        const width = container?.clientWidth || window.innerWidth;
-        const height = container?.clientHeight || window.innerHeight;
+        const rawWidth = container?.clientWidth || window.innerWidth;
+        const rawHeight = container?.clientHeight || window.innerHeight;
+        const width = rawWidth - (rawWidth % 2);
+        const height = rawHeight - (rawHeight % 2);
 
         const canvas = p.createCanvas(width, height);
         if (container) {
@@ -356,8 +358,10 @@ const App: React.FC = () => {
       p.windowResized = () => {
         const container = p5ContainerRef.current;
         if (!container) return;
-        const width = container.clientWidth;
-        const height = container.clientHeight;
+        const rawWidth = container.clientWidth;
+        const rawHeight = container.clientHeight;
+        const width = rawWidth - (rawWidth % 2);
+        const height = rawHeight - (rawHeight % 2);
         p.resizeCanvas(width, height);
         grainBuffer = createFilmGrainTextureBuffer(p, width, height);
       };
