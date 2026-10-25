@@ -97,6 +97,42 @@ export function useSketchHandlers() {
     [recordHistory, setParams, recomputePacking],
   );
 
+  /**
+   * 既存のサークルパッキング配置（円の位置・半径）を完全維持したまま、
+   * 指定したパレットの色のみを円に再割り当て（リカラー）する
+   */
+  const recolorExistingCircles = useCallback(
+    (palette: Palette) => {
+      const colors = palette.colors;
+      if (colors.length === 0) return;
+      const usableColors =
+        paramsRef.current.isExclusiveBackground && colors.length > 1
+          ? colors.slice(1)
+          : colors;
+      const fallback = colors[0];
+
+      setCircles((prevCircles) =>
+        prevCircles.map((circle) => {
+          const primaryChoice =
+            usableColors[
+              Math.floor(Math.random() * usableColors.length)
+            ] || fallback;
+          const secondaryChoice =
+            usableColors[
+              Math.floor(Math.random() * usableColors.length)
+            ] || primaryChoice;
+          return {
+            ...circle,
+            primaryColor: primaryChoice.rgb,
+            primaryHex: primaryChoice.hex,
+            secondaryColor: secondaryChoice.rgb,
+          };
+        }),
+      );
+    },
+    [setCircles],
+  );
+
   const handleApplyPalette = useCallback(
     (paletteIndex: number) => {
       recordHistory();
@@ -106,14 +142,15 @@ export function useSketchHandlers() {
         ...prev,
         activePaletteIndex: paletteIndex,
       }));
-      recomputePacking({ activePaletteIndex: paletteIndex }, newPalette);
+      // 円の幾何配置（サークルパッキング構造）は維持し、色のみを新パレットで更新
+      recolorExistingCircles(newPalette);
       showToast(`パレット変更: ${newPalette.title}`, "info");
     },
     [
       recordHistory,
       setActivePalette,
       setParams,
-      recomputePacking,
+      recolorExistingCircles,
       showToast,
     ],
   );
@@ -265,10 +302,10 @@ export function useSketchHandlers() {
       recordHistory();
       const customPal = generateGradientPaletteFromBaseColor(baseHexColor);
       setActivePalette(customPal);
-      recomputePacking(undefined, customPal);
+      recolorExistingCircles(customPal);
       showToast(`カスタムグラデーション生成 (${baseHexColor})`, "success");
     },
-    [recordHistory, setActivePalette, recomputePacking, showToast],
+    [recordHistory, setActivePalette, recolorExistingCircles, showToast],
   );
 
   const handleShufflePaletteColors = useCallback(() => {
@@ -287,9 +324,9 @@ export function useSketchHandlers() {
       colors: [colors[0], ...nonBg],
     };
     setActivePalette(updatedPalette);
-    recomputePacking(undefined, updatedPalette);
+    recolorExistingCircles(updatedPalette);
     showToast("パレット配色をシャッフルしました", "info");
-  }, [recordHistory, setActivePalette, recomputePacking, showToast]);
+  }, [recordHistory, setActivePalette, recolorExistingCircles, showToast]);
 
   const randomizeSelectedParameters = useCallback(() => {
     recordHistory();
@@ -354,8 +391,7 @@ export function useSketchHandlers() {
       );
     }
 
-    let needRecompute =
-      randomTargets.palette || randomTargets.paletteShuffle;
+    let needRecompute = false;
 
     if (randomTargets.maxCircles) {
       nextUpdates.maxCircles = Math.floor(Math.random() * 450) + 150;
@@ -413,12 +449,18 @@ export function useSketchHandlers() {
       nextPalette = { ...nextPalette, colors };
       setActivePalette(nextPalette);
       nextUpdates.isExclusiveBackground = true;
-      needRecompute = true;
     }
 
     setParams((prev) => ({ ...prev, ...nextUpdates }));
     if (needRecompute) {
       recomputePacking(nextUpdates, nextPalette);
+    } else if (
+      (randomTargets.palette ||
+        randomTargets.paletteShuffle ||
+        randomTargets.isExclusiveBackground) &&
+      nextPalette
+    ) {
+      recolorExistingCircles(nextPalette);
     }
     showToast("選択パラメータをランダム設定しました", "success");
   }, [
@@ -427,6 +469,7 @@ export function useSketchHandlers() {
     setActivePalette,
     setParams,
     recomputePacking,
+    recolorExistingCircles,
     showToast,
   ]);
 
